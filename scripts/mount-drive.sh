@@ -13,6 +13,9 @@
 
 set -euo pipefail
 
+# Overridable so tests can point it at a throwaway file instead of /etc/fstab.
+FSTAB="${FSTAB:-/etc/fstab}"
+
 if [[ "${EUID}" -ne 0 ]]; then
     echo "This script must run as root (use sudo)." >&2
     exit 1
@@ -82,24 +85,30 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Mountpoint + fstab (by UUID, with nofail).
+# UUID lookup FIRST -- bail out cleanly before touching fstab if it's missing.
+# `|| true` keeps `set -e` from aborting before our own explicit check, so the
+# user gets a clear message (e.g. an unformatted drive in mount-only mode)
+# instead of a bare non-zero exit, and no bad entry is ever written to fstab.
 # ---------------------------------------------------------------------------
-mkdir -p "${MOUNTPOINT}"
-
-UUID="$(blkid -s UUID -o value "${PARTITION}")"
+UUID="$(blkid -s UUID -o value "${PARTITION}" 2>/dev/null || true)"
 if [[ -z "${UUID}" ]]; then
-    echo "Error: could not read UUID of ${PARTITION}." >&2
+    echo "Error: could not read a filesystem UUID from ${PARTITION}." >&2
+    echo "       Is it formatted? Re-run with --format to create a filesystem." >&2
+    echo "       Nothing was written to ${FSTAB}." >&2
     exit 1
 fi
 echo "==> ${PARTITION} UUID=${UUID}"
 
+# Only now is it safe to create the mountpoint and persist the entry.
+mkdir -p "${MOUNTPOINT}"
+
 # nofail so a missing data drive never blocks boot.
 FSTAB_LINE="UUID=${UUID} ${MOUNTPOINT} ext4 defaults,nofail 0 2"
-if grep -q "UUID=${UUID}" /etc/fstab; then
-    echo "    UUID already in /etc/fstab; not adding again."
+if grep -q "UUID=${UUID}" "${FSTAB}"; then
+    echo "    UUID already in ${FSTAB}; not adding again."
 else
-    echo "${FSTAB_LINE}" >> /etc/fstab
-    echo "    added to /etc/fstab: ${FSTAB_LINE}"
+    echo "${FSTAB_LINE}" >> "${FSTAB}"
+    echo "    added to ${FSTAB}: ${FSTAB_LINE}"
 fi
 
 echo "==> Mounting..."
