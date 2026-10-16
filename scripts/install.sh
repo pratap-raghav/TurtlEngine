@@ -115,7 +115,9 @@ fi
 # 8. Notifier (optional).
 # ---------------------------------------------------------------------------
 echo ""
-read -r -p "Install the Telegram boot-notifier now? [y/N] " answer
+# `|| answer=""` keeps `set -e` from aborting the script on EOF (e.g. when
+# install.sh is run non-interactively); an empty answer falls through to skip.
+read -r -p "Install the Telegram boot-notifier now? [y/N] " answer || answer=""
 case "${answer}" in
     [yY]|[yY][eE][sS])
         "${SCRIPT_DIR}/setup-notifier.sh" "${TARGET_USER}"
