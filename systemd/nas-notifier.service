@@ -1,0 +1,21 @@
+[Unit]
+Description=TurtlEngine Telegram boot-notifier
+Wants=network-online.target
+After=network-online.target tailscaled.service
+# Note: Ubuntu Desktop uses NetworkManager, so network-online.target is
+# satisfied by NetworkManager-wait-online.service (enabled by default). We keep
+# this a soft Wants/After rather than a hard Requires -- the script's own
+# connectivity poll is the real guard, and a soft dependency won't wedge boot if
+# the net is briefly down.
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/nas-notifier.env
+ExecStart=/usr/bin/python3 /opt/turtlengine/notifier/notify.py
+# The script waits internally (up to ~5 min) for real connectivity.
+TimeoutStartSec=360
+# Runs as root so it can read the chmod-600 env file and call tailscale.
+User=root
+
+[Install]
+WantedBy=multi-user.target
