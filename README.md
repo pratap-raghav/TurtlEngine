@@ -51,18 +51,21 @@ Then, from your laptop or phone, copy your SSH key to the box and start a
 session:
 
 ```bash
-ssh-copy-id <user>@<nas-ip>    # run on the client, not the NAS
-tmux new -s main               # on the NAS
+ssh-copy-id <user>@<nas-ip>       # run on the client, not the NAS
+tmux new-session -A -s main       # on the NAS
 ```
 
 ### Reconnect from anywhere
 
 ```bash
-ssh <user>@<ip> -t tmux attach -t main
+ssh <user>@<ip> -t tmux new-session -A -s main
 ```
 
-Use the LAN IP at home, or the Tailscale IP from anywhere. The boot-notifier
-sends you exactly this command for each reachable address on every boot.
+Use the LAN IP at home, or the Tailscale IP from anywhere. `new-session -A`
+attaches to the `main` session if it exists and creates it otherwise, so the
+very first connect after a boot works too (a plain `tmux attach` would fail when
+no session exists yet). The boot-notifier sends you exactly this command for
+each reachable address on every boot.
 
 ## Telegram boot-notifier
 

@@ -12,9 +12,11 @@
 
 set -euo pipefail
 
-INSTALL_DIR="/opt/turtlengine/notifier"
-ENV_PATH="/etc/nas-notifier.env"
-UNIT_PATH="/etc/systemd/system/nas-notifier.service"
+# Paths are overridable so tests can redirect them to a throwaway directory.
+# In normal use the defaults are the real system locations.
+INSTALL_DIR="${INSTALL_DIR:-/opt/turtlengine/notifier}"
+ENV_PATH="${ENV_PATH:-/etc/nas-notifier.env}"
+UNIT_PATH="${UNIT_PATH:-/etc/systemd/system/nas-notifier.service}"
 
 # Resolve the repo root from this script's own location, so it works from
 # anywhere (install.sh calls it too).
@@ -59,8 +61,8 @@ else
     echo "    created ${ENV_PATH} (chmod 600, SSH_USER=${TARGET_USER})"
 fi
 
-# 3. Install and enable the systemd unit.
-install -m 0644 "${REPO_ROOT}/systemd/nas-notifier.service" "${UNIT_PATH}"
+# 3. Install and enable the systemd unit (-D creates the parent dir if needed).
+install -D -m 0644 "${REPO_ROOT}/systemd/nas-notifier.service" "${UNIT_PATH}"
 systemctl daemon-reload
 systemctl enable nas-notifier.service >/dev/null
 echo "    unit installed and enabled -> ${UNIT_PATH}"

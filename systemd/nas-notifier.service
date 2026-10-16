@@ -10,12 +10,32 @@ After=network-online.target tailscaled.service
 
 [Service]
 Type=oneshot
+# oneshot never restarts by default; make it explicit so a failed send shows up
+# in `systemctl status` / journalctl as a clean failure, never a restart loop.
+Restart=no
 EnvironmentFile=/etc/nas-notifier.env
 ExecStart=/usr/bin/python3 /opt/turtlengine/notifier/notify.py
 # The script waits internally (up to ~5 min) for real connectivity.
 TimeoutStartSec=360
 # Runs as root so it can read the chmod-600 env file and call tailscale.
 User=root
+
+# --- Hardening --------------------------------------------------------------
+# Deliberately conservative: each of these leaves intact what the notifier
+# actually needs -- outbound network, reading /etc/nas-notifier.env, connecting
+# to the tailscaled socket under /run, and reading the user's tmux socket under
+# /tmp. In particular we do NOT set PrivateTmp (it would hide /tmp/tmux-<uid>)
+# and we use ProtectSystem=full rather than strict (full leaves /run writable,
+# which the tailscaled socket connection needs).
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+ProtectControlGroups=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
 
 [Install]
 WantedBy=multi-user.target

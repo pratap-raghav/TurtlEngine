@@ -10,7 +10,9 @@ or sent; SSH login is key-based, and the message only carries host, IPs, and the
 paste-ready command.
 """
 
+import getpass
 import os
+import pwd
 import socket
 import subprocess
 import sys
@@ -61,7 +63,9 @@ def load_env(path=ENV_PATH):
         with open(path, "r", encoding="utf-8") as handle:
             for raw in handle:
                 line = raw.strip()
-                if not line or line.startswith("#") or "=" not in line:
+                # Match systemd EnvironmentFile parsing: ignore blank lines and
+                # whole-line comments beginning with # or ; (no inline comments).
+                if not line or line[0] in "#;" or "=" not in line:
                     continue
                 key, _, value = line.partition("=")
                 key = key.strip()
@@ -145,11 +149,41 @@ def get_uptime():
     return " ".join(parts)
 
 
-def tmux_session_alive(session):
-    """True if a tmux session by that name exists."""
+def tmux_socket_for_user(user):
+    """Default tmux socket path for a user, or None if the user is unknown.
+
+    tmux uses /tmp/tmux-<uid>/default unless TMUX_TMPDIR is set. This lets the
+    notifier (running as root) check the target user's own tmux server rather
+    than root's, which is a different server entirely.
+    """
+    try:
+        uid = pwd.getpwnam(user).pw_uid
+    except KeyError:
+        return None
+    return "/tmp/tmux-%d/default" % uid
+
+
+def tmux_check_cmd(session, user=None, current_user=None):
+    """Build the argv for checking a user's tmux session.
+
+    If a distinct target user is given, point tmux at that user's default
+    socket; otherwise check the current user's own server. Factored out (pure,
+    no I/O) so it can be unit-tested.
+    """
+    if current_user is None:
+        current_user = getpass.getuser()
+    if user and user != current_user:
+        socket_path = tmux_socket_for_user(user)
+        if socket_path:
+            return ["tmux", "-S", socket_path, "has-session", "-t", session]
+    return ["tmux", "has-session", "-t", session]
+
+
+def tmux_session_alive(session, user=None):
+    """True if the target user's tmux session by that name exists."""
     try:
         result = subprocess.run(
-            ["tmux", "has-session", "-t", session],
+            tmux_check_cmd(session, user),
             capture_output=True,
             text=True,
             timeout=10,
@@ -186,7 +220,7 @@ def gather_info(config):
         "lan_ip": get_lan_ip(),
         "tailscale_ip": get_tailscale_ip(),
         "uptime": get_uptime(),
-        "tmux_alive": tmux_session_alive(session),
+        "tmux_alive": tmux_session_alive(session, user),
         "ssh_user": user,
         "tmux_session": session,
     }
@@ -220,7 +254,9 @@ def build_message(info):
     if reachable:
         lines.append("")
         for label, ip in reachable:
-            command = "ssh %s@%s -t tmux attach -t %s" % (user, ip, session)
+            # new-session -A attaches to the session if it exists, or creates
+            # it if not -- so the very first connect after a boot works too.
+            command = "ssh %s@%s -t tmux new-session -A -s %s" % (user, ip, session)
             # Inside a MarkdownV2 code span only ` and \ need escaping; ssh
             # commands contain neither, but escape defensively anyway.
             code = md2_code_escape(command)

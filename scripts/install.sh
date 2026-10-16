@@ -143,10 +143,10 @@ Next steps (these stay manual on purpose):
        ssh-copy-id ${TARGET_USER}@<nas-ip>
 
   3. Start your persistent work session:
-       tmux new -s main
+       tmux new-session -A -s main
 
-  Reconnect from anywhere later with:
-       ssh ${TARGET_USER}@<ip> -t tmux attach -t main
+  Reconnect from anywhere later with (attaches, or creates if absent):
+       ssh ${TARGET_USER}@<ip> -t tmux new-session -A -s main
 
 See README.md for the full walkthrough and security notes.
 EOF
