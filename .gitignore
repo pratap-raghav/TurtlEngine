@@ -1,0 +1,20 @@
+# Secrets — the real notifier env must NEVER be committed.
+# Only nas-notifier.env.example is tracked.
+nas-notifier.env
+/etc/nas-notifier.env
+*.env
+!*.env.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Editor / OS cruft
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
