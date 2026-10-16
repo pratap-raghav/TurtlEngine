@@ -10,7 +10,6 @@ or sent; SSH login is key-based, and the message only carries host, IPs, and the
 paste-ready command.
 """
 
-import json
 import os
 import socket
 import subprocess
