@@ -91,8 +91,9 @@ grep -q 'ExampleToken' "${ENV_A}" || fail "A: placeholder token was unexpectedly
 grep -q 'MyRealToken\|T0KEN' "${ENV_A}" && fail "A: credentials were written despite skipping"
 
 # --- Scenario B: token entered but chat id skipped -> token NOT saved -------
+# 's' at the chat-id loop skips; auto-detect is disabled in tests so it's empty.
 ENV_B="${TMP}/etc/env-b"
-run_setup "${ENV_B}" $'T0KEN-NOT-SAVED\n\n' || fail "B: exited non-zero when the chat id was skipped"
+run_setup "${ENV_B}" $'T0KEN-NOT-SAVED\ns\n' || fail "B: exited non-zero when the chat id was skipped"
 grep -q 'T0KEN-NOT-SAVED' "${ENV_B}" && fail "B: token was saved even though the chat id was skipped"
 
 # --- Scenario C: decline overwrite -> working credentials preserved ---------
@@ -111,9 +112,9 @@ grep -q '^TELEGRAM_BOT_TOKEN=111222333:RealWorkingTokenValue$' "${ENV_C}" \
     || fail "C: working token was not preserved"
 
 # --- Scenario D: full entry saves; a later run then guards the overwrite ----
-# Input order: token, [Enter at the START gate], chat id, decline the test send.
+# Input order: token, chat id typed at the retry prompt, decline the test send.
 ENV_D="${TMP}/etc/env-d"
-run_setup "${ENV_D}" $'123:MyRealToken\n\n5555555\nn\n' || fail "D: exited non-zero on full entry"
+run_setup "${ENV_D}" $'123:MyRealToken\n5555555\nn\n' || fail "D: exited non-zero on full entry"
 grep -q '^TELEGRAM_BOT_TOKEN=123:MyRealToken$' "${ENV_D}" || fail "D: token was not saved"
 grep -q '^TELEGRAM_CHAT_ID=5555555$' "${ENV_D}"         || fail "D: chat id was not saved"
 d_perms="$(stat -c '%a' "${ENV_D}")"

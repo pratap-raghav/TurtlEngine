@@ -135,7 +135,7 @@ cat <<'EOF'
   The notifier sends you a Telegram message after each boot with a ready-to-paste
   command to reconnect. To finish, it needs two things from Telegram:
     1) a BOT TOKEN   -- from @BotFather
-    2) your CHAT ID  -- a number the bot can read from its own updates page
+    2) your CHAT ID  -- detected automatically once you've pressed START
 EOF
 
 # If real credentials already exist, ask before replacing them.
@@ -170,31 +170,39 @@ if [[ -z "${token}" ]]; then
 fi
 
 echo ""
-echo "  Step 2 - let the bot see you, so we can read your chat id automatically."
-echo "  In Telegram, open your new bot and press START (or send it /start)."
-echo "  (A bot can only message you after you have messaged it at least once.)"
-echo ""
-read -r -p "  Press Enter here once you've pressed START in the bot: " _ || true
-
-echo "  Looking up your chat id from Telegram..."
+echo "  Step 2 - reading your chat id from Telegram (no need to look it up)."
+# The token alone is enough to call getUpdates; do it right away.
 chat_id="$(fetch_chat_id "${token}")"
 if [[ -n "${chat_id}" ]]; then
     echo "  Found it -- your chat id is ${chat_id}."
     ask_yes "Use this chat id?" "Y" || chat_id=""
-else
-    echo "  Couldn't read it automatically. Either /start hasn't reached the bot"
-    echo "  yet, or this machine can't reach api.telegram.org (some ISPs block"
-    echo "  Telegram). You can look it up yourself instead:"
-    echo "    - message @userinfobot in Telegram -- it replies with your Id; or"
-    echo "    - run this (it prints the number):"
-    echo "        curl -s \"https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates\" | jq '.result[].message.chat.id'"
 fi
-if [[ -z "${chat_id}" ]]; then
-    read -r -p "  Enter your chat id manually (a number, or press Enter to skip): " chat_id || chat_id=""
-fi
+# Nothing came back: the bot has no message from you yet (or Telegram is
+# unreachable). Guide to START and retry, allow a manual id, or skip. The loop
+# ends on EOF, so it never blocks when run non-interactively.
+while [[ -z "${chat_id}" ]]; do
+    echo ""
+    echo "  Nothing yet. In Telegram, open your new bot and press START (or send"
+    echo "  /start) -- a bot can only message you after you've messaged it first."
+    echo "  Then press Enter to retry. Or type your chat id (e.g. from"
+    echo "  @userinfobot), or 's' to skip. Manual lookup, if you prefer:"
+    echo "    curl -s \"https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates\" | jq '.result[].message.chat.id'"
+    read -r -p "  [Enter = retry / <number> / s = skip] " ans || ans="s"
+    case "${ans}" in
+        s|S) break ;;
+        "")
+            chat_id="$(fetch_chat_id "${token}")"
+            if [[ -n "${chat_id}" ]]; then
+                echo "  Found it -- your chat id is ${chat_id}."
+                ask_yes "Use this chat id?" "Y" || chat_id=""
+            fi
+            ;;
+        *) chat_id="${ans}" ;;
+    esac
+done
 if [[ -z "${chat_id}" ]]; then
     echo ""
-    echo "  No chat id entered -- your token was not saved. Re-run when ready:"
+    echo "  No chat id set -- your token was not saved. Re-run when ready:"
     echo "      sudo ./scripts/setup-notifier.sh"
     exit 0
 fi
