@@ -90,6 +90,13 @@ very first connect after a boot works too (a plain `tmux attach` would fail when
 no session exists yet). The boot-notifier sends you exactly this command for
 each reachable address on every boot.
 
+> **The Tailscale IP only works from a device that is itself on the tailnet.**
+> Install Tailscale on each client (laptop/phone) and sign in to the **same
+> account** as the NAS — otherwise there is simply no route to the `100.x.y.z`
+> address and the connection will hang or fail. At home the LAN IP
+> (`192.168.x.x`) needs nothing extra. Check both ends are connected with
+> `tailscale status` — the other device should appear as a peer.
+
 ## Telegram boot-notifier
 
 The notifier messages you a status card on every boot — host, uptime, CPU / RAM
@@ -258,8 +265,9 @@ sudo turtlengine share remove Storage4TB    # backs up smb.conf, reloads smbd
 
 ## Security notes
 
-- **Bot token is a secret.** It lives only in `/etc/nas-notifier.env` (chmod
-  600, gitignored). Never commit it. If it leaks, revoke via @BotFather.
+- **Bot token is a secret.** It lives in `/etc/nas-notifier.env` (and, if you
+  enable the command bot, a matching copy in `/etc/turtlebot.env`) — both chmod
+  600 and gitignored. Never commit it. If it leaks, revoke via @BotFather.
 - **Key-based SSH only.** No script handles a password; the notifier never does.
   Once your key login works, harden SSH by setting `PasswordAuthentication no`
   in `/etc/ssh/sshd_config` and `sudo systemctl restart ssh`. Do this only after
@@ -267,6 +275,28 @@ sudo turtlengine share remove Storage4TB    # backs up smb.conf, reloads smbd
   script flips it for you.
 - **Tailscale exposes nothing to the internet.** Access rides the tailnet; no
   ports are forwarded on your router.
+
+## Troubleshooting
+
+**The command bot doesn't answer anything.** Check `turtlengine bot logs`.
+Repeated `getUpdates error: HTTP Error 401: Unauthorized` means the token in
+`/etc/turtlebot.env` is wrong or revoked — it must match the one in
+`/etc/nas-notifier.env`. Re-run `sudo ./scripts/setup-bot.sh` (it copies the
+notifier's token) and then `turtlengine bot restart`. Confirm the token itself
+is live with `curl -s "https://api.telegram.org/bot<TOKEN>/getMe"` — expect
+`"ok":true`. Note the boot notifier and the command bot are separate services:
+getting the boot card only proves the *notifier's* token works, not the bot's.
+
+**Can't reach the NAS over Tailscale.** Run `tailscale status` on the NAS. If it
+lists **no peers**, the device you're connecting from isn't on the tailnet —
+install Tailscale on that laptop/phone and sign in to the same account, then
+retry. On the LAN you don't need Tailscale at all; use the `192.168.x.x` address.
+
+**SSH says `Permission denied (publickey,password)` or keeps asking for a
+password.** That's expected until you install a key — run `ssh-copy-id
+<user>@<nas-ip>` from the client. Logging in with your normal account password
+is also fine; only set `PasswordAuthentication no` *after* key login works (see
+Security notes), or you can lock yourself out.
 
 ## Manual steps (not automated on purpose)
 

@@ -159,6 +159,28 @@ class TestHandlers(unittest.TestCase):
         self.assertIn("ext4", out)
         self.assertIn("```", out)
 
+    def test_storage_dedupes_bind_mounts_by_device(self):
+        # Our sandbox bind-mounts /etc, /home, ... off the root device; a second
+        # real disk is a distinct device. The root rows must collapse to one ("/")
+        # while the extra disk survives.
+        mounts = (
+            "/dev/sda1 / ext4 rw 0 0\n"
+            "/dev/sda1 /etc ext4 ro 0 0\n"
+            "/dev/sda1 /home ext4 ro 0 0\n"
+            "/dev/sda1 /usr ext4 ro 0 0\n"
+            "/dev/sdb1 /mnt/data ext4 rw 0 0\n"
+        )
+        svfs = mock.Mock(f_blocks=100, f_frsize=1024 ** 3, f_bavail=90)
+
+        def fake_stat(path):
+            return mock.Mock(st_dev=2050 if path == "/mnt/data" else 2049)
+
+        with mock.patch("builtins.open", mock.mock_open(read_data=mounts)), \
+                mock.patch.object(bot.os, "stat", side_effect=fake_stat), \
+                mock.patch.object(bot.os, "statvfs", return_value=svfs):
+            rows = bot.get_storage()
+        self.assertEqual(sorted(r[0] for r in rows), ["/", "/mnt/data"])
+
     def test_logs_denied_distinct(self):
         with mock.patch.object(bot, "get_logs", return_value="denied"):
             out = bot.cmd_logs(CONFIG)

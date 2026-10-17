@@ -155,8 +155,14 @@ systemctl daemon-reload
 if [[ -n "${BOT_SKIP_ENABLE:-}" ]]; then
     echo "  Unit installed -> ${UNIT_PATH} (not started: BOT_SKIP_ENABLE set)."
 else
-    systemctl enable --now turtlebot.service >/dev/null 2>&1 || systemctl enable turtlebot.service >/dev/null 2>&1 || true
-    echo "  Unit installed and started -> ${UNIT_PATH}"
+    systemctl enable turtlebot.service >/dev/null 2>&1 || true
+    # restart (not just enable --now): on a re-run the service is already
+    # active, and --now would leave the old process running the previous
+    # bot.py. restart makes the reinstalled code take effect; fall back to
+    # start if it wasn't running yet.
+    systemctl restart turtlebot.service >/dev/null 2>&1 \
+        || systemctl start turtlebot.service >/dev/null 2>&1 || true
+    echo "  Unit installed and (re)started -> ${UNIT_PATH}"
 fi
 
 cat <<EOF
