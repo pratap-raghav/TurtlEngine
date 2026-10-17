@@ -151,8 +151,17 @@ def _ssh_command(user, ip, session):
     return "ssh %s@%s -t tmux new-session -A -s %s" % (user, ip, session)
 
 
+def _copy(text):
+    """Inline code span -- tap-to-copy on Telegram mobile, like BotFather's token.
+
+    Fenced code blocks don't reliably copy on tap on mobile; a single-backtick
+    inline span does. Use this for single-line commands the user will copy.
+    """
+    return "`%s`" % notify.md2_code_escape(text)
+
+
 def _fenced(text):
-    """Wrap text in a MarkdownV2 fenced code block (tap-to-copy)."""
+    """MarkdownV2 fenced code block -- for multi-line display (tables, logs)."""
     return "```\n%s\n```" % notify.md2_code_escape(text)
 
 
@@ -203,7 +212,7 @@ def cmd_ssh_local(config):
     if not lan:
         return notify.md2_escape(
             "🏠 LAN address couldn't be determined — is the NAS on the network?")
-    return "🏠 *Home / LAN*\n" + _fenced(_ssh_command(user, lan, session))
+    return "🏠 *Home / LAN*\n" + _copy(_ssh_command(user, lan, session))
 
 
 def cmd_ssh_remote(config):
@@ -213,8 +222,8 @@ def cmd_ssh_remote(config):
     if not ts:
         return (notify.md2_escape(
             "🌍 Tailscale isn't connected. Run this on the NAS, then try again:")
-            + "\n" + _fenced("sudo tailscale up"))
-    return "🌍 *Anywhere / Tailscale*\n" + _fenced(_ssh_command(user, ts, session))
+            + "\n" + _copy("sudo tailscale up"))
+    return "🌍 *Anywhere / Tailscale*\n" + _copy(_ssh_command(user, ts, session))
 
 
 def cmd_storage(config):
@@ -243,7 +252,7 @@ def cmd_sessions(config):
     if state == "none" or not names:
         return (notify.md2_escape(
             "🧩 No tmux sessions running. Start one on the NAS with:")
-            + "\n" + _fenced("tmux new-session -A -s %s" % session))
+            + "\n" + _copy("tmux new-session -A -s %s" % session))
     note = ("'%s' is running ✅" % session if session in names
             else "'%s' is not running yet" % session)
     return "🧩 *tmux sessions*\n" + _fenced("\n".join(names)) + "\n" + notify.md2_escape(note)

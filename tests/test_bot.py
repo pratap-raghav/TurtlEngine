@@ -123,8 +123,9 @@ class TestHandlers(unittest.TestCase):
     def test_ssh_local_with_lan_gives_command(self):
         with mock.patch.object(bot.notify, "get_lan_ip", return_value="192.168.0.5"):
             out = bot.cmd_ssh_local(CONFIG)
-        self.assertIn("ssh ghost@192.168.0.5 -t tmux new-session -A -s main", out)
-        self.assertIn("```", out)
+        # Inline code span (single backticks) so it's tap-to-copy on mobile.
+        self.assertIn("`ssh ghost@192.168.0.5 -t tmux new-session -A -s main`", out)
+        self.assertNotIn("```", out)
 
     def test_ssh_remote_without_tailscale_explains(self):
         with mock.patch.object(bot.notify, "get_tailscale_ip", return_value=None):

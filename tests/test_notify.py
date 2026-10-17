@@ -83,14 +83,18 @@ class TestMessageBuilder(unittest.TestCase):
         msg = notify.build_message(base_info(hostname="turtle-nas.local"))
         # Inside the `code` span the host must appear literally (no backslash).
         self.assertIn("`turtle-nas.local`", msg)
-        # The command lives in a fenced code block and stays literal (no escapes).
-        self.assertIn("ssh ghost@192.168.1.42 -t tmux new-session -A -s main", msg)
+        # The command lives in an inline code span and stays literal (no escapes).
+        self.assertIn("`ssh ghost@192.168.1.42 -t tmux new-session -A -s main`", msg)
 
     def test_commands_are_copy_blocks(self):
-        """Commands are fenced code blocks (tap-to-copy), one per address."""
+        """Commands are inline code spans (tap-to-copy on mobile, BotFather-style)."""
         msg = notify.build_message(base_info())  # both LAN + Tailscale present
-        # Two reachable addresses -> two code fences -> >= 4 ``` markers.
-        self.assertGreaterEqual(msg.count("```"), 4)
+        # No fenced blocks -- mobile clients don't reliably copy those on tap.
+        self.assertNotIn("```", msg)
+        # Each reconnect command is an inline code span (single backticks)...
+        self.assertIn("`ssh ", msg)
+        # ...one per reachable address.
+        self.assertEqual(msg.count("-t tmux new-session -A -s"), 2)
 
     def test_custom_session_name_flows_through(self):
         msg = notify.build_message(base_info(tmux_session="work"))
