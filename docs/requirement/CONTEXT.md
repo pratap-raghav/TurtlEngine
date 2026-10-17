@@ -317,9 +317,9 @@ For the README/MOTD text file, use the same art without the Python wrapper:
 - Runs as a **guided, phased installer**: tidy `[n/6]` progress with full command
   output sent to `/var/log/turtlengine-install.log` (a `--verbose` flag streams it
   live instead). After the base phases it **interactively configures Telegram**
-  (opening @BotFather and the `getUpdates` page, prompting for token + chat id,
-  asking before overwriting existing credentials, optional test send) and then
-  **offers to run `tailscale up`** for sign-in.
+  (token created in the Telegram app, chat id auto-detected from the Bot API with
+  a manual fallback, asking before overwriting existing credentials, optional
+  test send) and then **offers to run `tailscale up`** for sign-in.
 - The **swapfile step (§1.5) was removed entirely** and is not recreated — the
   box runs with no configured swap (`SWAP_SIZE_GB`, `vm.swappiness`, and the fstab
   swap line are all gone).
