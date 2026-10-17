@@ -1,0 +1,404 @@
+#!/usr/bin/env bash
+#
+# turtlengine -- local CLI to manage a TurtlEngine NAS after installation.
+#
+# Plain Bash, no web UI, no server. Storage/status discovery is read-only.
+# Mutating actions require root and explicit confirmation. Nothing is formatted,
+# mounted, or shared automatically -- you choose every path, user, and name.
+#
+# Usage:
+#   sudo turtlengine                 open the interactive menu
+#   sudo turtlengine status          services, network, storage, notifier
+#        turtlengine storage list    disks/partitions/filesystems (read-only)
+#   sudo turtlengine storage mount   guided mount of a chosen filesystem
+#   sudo turtlengine share add       configure one Samba share (guided)
+#        turtlengine share list      list configured shares and their paths
+#   sudo turtlengine share remove [name]   remove a share config (keeps files)
+#        turtlengine logs [-f]       view the boot-notifier's logs (-f follows)
+#   sudo turtlengine notify          send a status card to Telegram now
+#   sudo turtlengine bot setup       install the read-only Telegram command bot
+#        turtlengine bot status|logs status / logs of the command bot
+#   sudo turtlengine bot restart     restart the command bot
+
+set -euo pipefail
+
+SMB_CONF="${SMB_CONF:-/etc/samba/smb.conf}"
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+SELF_DIR="$(dirname "${SELF}")"
+
+# --- helpers ----------------------------------------------------------------
+find_script() {
+    local name="$1" d
+    for d in "${SELF_DIR}" /opt/turtlengine/scripts; do
+        if [[ -f "${d}/${name}" ]]; then printf '%s\n' "${d}/${name}"; return 0; fi
+    done
+    echo "Error: could not locate ${name} (looked in ${SELF_DIR} and /opt/turtlengine/scripts)." >&2
+    return 1
+}
+
+need_root() {
+    if [[ "${EUID}" -ne 0 ]]; then
+        echo "This action needs root. Re-run with: sudo turtlengine $*" >&2
+        exit 1
+    fi
+}
+
+ask() { # ask "prompt" "default" -> echoes the answer (or default on empty/EOF)
+    local prompt="$1" default="${2:-}" ans
+    if [[ -n "${default}" ]]; then
+        read -r -p "${prompt} [${default}]: " ans || ans=""
+        printf '%s\n' "${ans:-${default}}"
+    else
+        read -r -p "${prompt}: " ans || ans=""
+        printf '%s\n' "${ans}"
+    fi
+}
+
+confirm() { # confirm "prompt" -> 0 on yes
+    local ans
+    read -r -p "$1 [y/N] " ans || ans=""
+    [[ "${ans}" =~ ^[yY]([eE][sS])?$ ]]
+}
+
+svc() { systemctl "$@" 2>/dev/null || true; }
+
+# --- status (read-only) -----------------------------------------------------
+cmd_status() {
+    echo "== TurtlEngine status =="
+
+    echo ""
+    echo "Services:"
+    printf '  %-14s %s / %s\n' "ssh" "$(svc is-active ssh)" "$(svc is-enabled ssh)"
+    printf '  %-14s %s\n' "sleep.target" "$(svc is-enabled sleep.target)"
+    printf '  %-14s %s\n' "nas-notifier" "$(svc is-enabled nas-notifier.service)"
+    if command -v systemctl >/dev/null 2>&1; then
+        printf '  %-14s %s\n' "smbd" "$(svc is-active smbd) / $(svc is-enabled smbd)"
+    fi
+
+    echo ""
+    echo "Network:"
+    printf '  %-14s %s\n' "hostname" "$(hostname)"
+    printf '  %-14s %s\n' "LAN IP(s)" "$(hostname -I 2>/dev/null | sed 's/ *$//')"
+    if command -v tailscale >/dev/null 2>&1; then
+        local ts
+        ts="$(tailscale ip -4 2>/dev/null | head -n1)"
+        printf '  %-14s %s\n' "tailscale" "${ts:-installed, not connected}"
+    else
+        printf '  %-14s %s\n' "tailscale" "not installed"
+    fi
+
+    echo ""
+    echo "Notifier config:"
+    if [[ -f /etc/nas-notifier.env ]]; then
+        printf '  %-14s present (perms %s)\n' "env file" "$(stat -c '%a' /etc/nas-notifier.env 2>/dev/null)"
+        echo "  (contents not shown -- it holds your bot token)"
+        echo "  logs: turtlengine logs   |   send now: sudo turtlengine notify"
+    else
+        printf '  %-14s missing -- run: sudo setup-notifier.sh to install the notifier\n' "env file"
+    fi
+
+    echo ""
+    echo "Storage (mounted, real filesystems):"
+    df -hT -x tmpfs -x devtmpfs -x squashfs -x overlay 2>/dev/null | sed 's/^/  /'
+
+    echo ""
+    echo "Samba shares:"
+    list_shares | sed 's/^/  /'
+}
+
+# --- storage ----------------------------------------------------------------
+cmd_storage_list() {
+    echo "== Block devices =="
+    lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,UUID 2>/dev/null
+    echo ""
+    echo "== Free space (mounted) =="
+    df -hT -x tmpfs -x devtmpfs -x squashfs -x overlay 2>/dev/null
+    echo ""
+    echo "Nothing above was modified. To mount one: sudo turtlengine storage mount"
+}
+
+cmd_storage_mount() {
+    need_root storage mount
+    local script device mountpoint mode
+    script="$(find_script mount-drive.sh)" || exit 1
+
+    echo "Current block devices:"
+    lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT 2>/dev/null | sed 's/^/  /'
+    echo ""
+
+    device="$(ask "Device or partition to mount (e.g. /dev/sdb1)")"
+    [[ -z "${device}" ]] && { echo "Cancelled."; return 0; }
+    if [[ ! -b "${device}" ]]; then
+        echo "Error: ${device} is not a block device." >&2
+        exit 1
+    fi
+
+    mountpoint="$(ask "Mountpoint" "/mnt/nas")"
+    [[ -z "${mountpoint}" ]] && { echo "Cancelled."; return 0; }
+
+    echo ""
+    echo "1) Mount an EXISTING filesystem (no data loss)"
+    echo "2) FORMAT the device, then mount (DESTROYS all data on it)"
+    mode="$(ask "Choose" "1")"
+
+    case "${mode}" in
+        2)
+            echo "You chose to FORMAT ${device}. mount-drive.sh will ask you to"
+            echo "re-type the device name to confirm before erasing anything."
+            "${script}" "${device}" "${mountpoint}" --format
+            ;;
+        *)
+            "${script}" "${device}" "${mountpoint}"
+            ;;
+    esac
+}
+
+# --- shares -----------------------------------------------------------------
+list_shares() { # read-only; prints "name  path" per share, or a notice
+    if [[ ! -f "${SMB_CONF}" ]]; then
+        echo "(samba not configured -- ${SMB_CONF} not found)"
+        return 0
+    fi
+    local found
+    found="$(awk '
+        /^[[:space:]]*\[.*\]/ { name=$0; gsub(/^[[:space:]]*\[|\][[:space:]]*$/,"",name) }
+        /^[[:space:]]*path[[:space:]]*=/ {
+            p=$0; sub(/^[^=]*=[[:space:]]*/,"",p)
+            if (name!="global" && name!="printers" && name!="print$")
+                printf "%-20s %s\n", name, p
+        }
+    ' "${SMB_CONF}")"
+    if [[ -z "${found}" ]]; then
+        echo "(no shares configured)"
+    else
+        printf '%s\n' "${found}"
+    fi
+}
+
+cmd_share_add() {
+    need_root share add
+    local script user dir name
+    script="$(find_script setup-samba.sh)" || exit 1
+
+    echo "Configure one Samba share. You choose the directory, user, and name;"
+    echo "nothing is shared automatically. Existing shares are preserved."
+    echo ""
+    dir="$(ask "Directory to share (e.g. /mnt/nas-1tb/media)")"
+    [[ -z "${dir}" ]] && { echo "Cancelled."; return 0; }
+    user="$(ask "Linux user allowed to access it" "${SUDO_USER:-root}")"
+    [[ -z "${user}" ]] && { echo "Cancelled."; return 0; }
+    name="$(ask "Share name" "$(basename "${dir}" | tr -c 'A-Za-z0-9_-' '_')")"
+
+    # setup-samba.sh does the deep validation, root-fs warning, and password.
+    "${script}" "${user}" "${dir}" "${name}"
+}
+
+cmd_share_list() {
+    echo "== Configured Samba shares =="
+    list_shares
+}
+
+cmd_share_remove() {
+    local name="${1:-}"
+    # Editing the real system config needs root; a redirected SMB_CONF (tests)
+    # does not.
+    if [[ "${SMB_CONF}" == "/etc/samba/smb.conf" ]]; then
+        need_root share remove
+    fi
+
+    if [[ ! -f "${SMB_CONF}" ]]; then
+        echo "No ${SMB_CONF}; nothing to remove." >&2
+        exit 1
+    fi
+
+    if [[ -z "${name}" ]]; then
+        echo "Configured shares:"
+        list_shares | sed 's/^/  /'
+        name="$(ask "Share name to remove")"
+    fi
+    [[ -z "${name}" ]] && { echo "Cancelled."; return 0; }
+
+    if ! grep -q "^[[:space:]]*\[${name}\]" "${SMB_CONF}"; then
+        echo "Error: no share named [${name}] in ${SMB_CONF}." >&2
+        exit 1
+    fi
+
+    echo "This removes the [${name}] share definition from ${SMB_CONF}."
+    echo "It does NOT delete any files in the shared directory."
+    confirm "Remove share [${name}]?" || { echo "Cancelled."; return 0; }
+
+    cp "${SMB_CONF}" "${SMB_CONF}.turtlengine.bak"
+    local tmp
+    tmp="$(mktemp)"
+    awk -v target="[${name}]" '
+        { line=$0; sub(/^[[:space:]]+/,"",line) }
+        line==target { skip=1; next }
+        skip==1 && line ~ /^\[.*\]$/ { skip=0 }
+        skip!=1 { print }
+    ' "${SMB_CONF}" > "${tmp}"
+    cat "${tmp}" > "${SMB_CONF}"
+    rm -f "${tmp}"
+    echo "Removed [${name}]. Backup saved at ${SMB_CONF}.turtlengine.bak"
+
+    if [[ "${SMB_CONF}" == "/etc/samba/smb.conf" ]] && command -v systemctl >/dev/null 2>&1; then
+        systemctl reload smbd 2>/dev/null || systemctl restart smbd 2>/dev/null || true
+        echo "Reloaded smbd."
+    fi
+}
+
+# --- notifier ---------------------------------------------------------------
+cmd_logs() { # show the boot-notifier's logs (no need to remember journalctl)
+    local unit="nas-notifier.service"
+    if ! command -v journalctl >/dev/null 2>&1; then
+        echo "journalctl is not available on this system." >&2
+        exit 1
+    fi
+    case "${1:-}" in
+        -f|--follow)
+            echo "Following ${unit} -- Ctrl-C to stop."
+            journalctl -u "${unit}" -f
+            ;;
+        *)
+            journalctl -u "${unit}" -b --no-pager
+            ;;
+    esac
+}
+
+cmd_notify() { # send a status card to Telegram now (triggers the notifier)
+    need_root notify
+    echo "Sending a status card to Telegram now..."
+    if systemctl start nas-notifier.service; then
+        echo "Triggered. If the notifier is configured, the message is on its way."
+        echo "See what happened with:  turtlengine logs"
+    else
+        echo "The notifier reported a problem. See:  turtlengine logs" >&2
+        exit 1
+    fi
+}
+
+cmd_bot() { # manage the read-only Telegram command bot
+    case "${1:-}" in
+        setup)
+            need_root bot setup
+            local script
+            script="$(find_script setup-bot.sh)" || exit 1
+            "${script}" "${SUDO_USER:-root}"
+            ;;
+        status)
+            printf '  %-14s %s / %s\n' "turtlebot" \
+                "$(svc is-active turtlebot.service)" "$(svc is-enabled turtlebot.service)"
+            ;;
+        logs)
+            if ! command -v journalctl >/dev/null 2>&1; then
+                echo "journalctl is not available on this system." >&2
+                exit 1
+            fi
+            case "${2:-}" in
+                -f|--follow)
+                    echo "Following turtlebot.service -- Ctrl-C to stop."
+                    journalctl -u turtlebot.service -f
+                    ;;
+                *) journalctl -u turtlebot.service -b --no-pager ;;
+            esac
+            ;;
+        restart)
+            need_root bot restart
+            if systemctl restart turtlebot.service; then
+                echo "turtlebot restarted."
+            else
+                echo "restart failed; see: turtlengine bot logs" >&2
+                exit 1
+            fi
+            ;;
+        *)
+            echo "Usage: turtlengine bot {setup|status|logs [-f]|restart}" >&2
+            exit 2
+            ;;
+    esac
+}
+
+# --- interactive menu -------------------------------------------------------
+menu() {
+    local choice
+    while true; do
+        cat <<'MENU'
+
+== TurtlEngine ==
+  1) Status
+  2) Storage: list disks (read-only)
+  3) Storage: mount a filesystem
+  4) Share: add a Samba share
+  5) Share: list shares
+  6) Share: remove a share
+  7) Notifier: view logs
+  8) Notifier: send a status card now
+  q) Quit
+MENU
+        read -r -p "Choose: " choice || break
+        case "${choice}" in
+            1) cmd_status ;;
+            2) cmd_storage_list ;;
+            3) cmd_storage_mount ;;
+            4) cmd_share_add ;;
+            5) cmd_share_list ;;
+            6) cmd_share_remove ;;
+            7) cmd_logs ;;
+            8) cmd_notify ;;
+            q|Q|"") break ;;
+            *) echo "Unknown choice: ${choice}" ;;
+        esac
+    done
+}
+
+usage() {
+    cat <<'USAGE'
+turtlengine -- local CLI to manage a TurtlEngine NAS after installation.
+
+Storage/status discovery is read-only. Mutating actions require root and
+explicit confirmation. Nothing is formatted, mounted, or shared automatically.
+
+Usage:
+  sudo turtlengine                      open the interactive menu
+  sudo turtlengine status               services, network, storage, notifier
+       turtlengine storage list         disks/partitions/filesystems (read-only)
+  sudo turtlengine storage mount        guided mount of a chosen filesystem
+  sudo turtlengine share add            configure one Samba share (guided)
+       turtlengine share list           list configured shares and their paths
+  sudo turtlengine share remove [name]  remove a share config (keeps files)
+       turtlengine logs [-f]            view the boot-notifier's logs (-f follows)
+  sudo turtlengine notify               send a status card to Telegram now
+  sudo turtlengine bot setup            install the read-only Telegram command bot
+       turtlengine bot status           is the command bot running?
+       turtlengine bot logs [-f]        view the command bot's logs
+  sudo turtlengine bot restart          restart the command bot
+USAGE
+}
+
+# --- dispatch ---------------------------------------------------------------
+main() {
+    local cmd="${1:-menu}"
+    case "${cmd}" in
+        menu) menu ;;
+        status) cmd_status ;;
+        storage)
+            case "${2:-}" in
+                list) cmd_storage_list ;;
+                mount) cmd_storage_mount ;;
+                *) echo "Usage: turtlengine storage {list|mount}" >&2; exit 2 ;;
+            esac ;;
+        share)
+            case "${2:-}" in
+                add) cmd_share_add ;;
+                list) cmd_share_list ;;
+                remove) cmd_share_remove "${3:-}" ;;
+                *) echo "Usage: turtlengine share {add|list|remove [name]}" >&2; exit 2 ;;
+            esac ;;
+        logs) cmd_logs "${2:-}" ;;
+        notify) cmd_notify ;;
+        bot) cmd_bot "${2:-}" "${3:-}" ;;
+        -h|--help|help) usage ;;
+        *) echo "Unknown command: ${cmd}" >&2; usage; exit 2 ;;
+    esac
+}
+
+main "$@"
