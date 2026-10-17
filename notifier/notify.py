@@ -364,11 +364,11 @@ def build_message(info):
             command = "ssh %s@%s -t tmux new-session -A -s %s" % (user, ip, session)
             lines.append("")
             lines.append("*%s* \\(%s\\)" % (md2_escape(label), md2_escape(ip)))
-            # A fenced code block renders with a one-tap "copy" button in the
-            # Telegram apps. Inside it only ` and \ need escaping.
-            lines.append("```")
-            lines.append(md2_code_escape(command))
-            lines.append("```")
+            # Inline code (single backticks), like BotFather's token: tapping it
+            # copies the whole command in the Telegram mobile apps. Fenced code
+            # blocks don't reliably copy on tap on mobile. Inside code only ` and
+            # \ need escaping.
+            lines.append("`%s`" % md2_code_escape(command))
     else:
         lines.append("")
         lines.append(md2_escape("No LAN or Tailscale address available yet."))
