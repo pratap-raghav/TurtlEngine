@@ -110,7 +110,13 @@ creds_configured() { # 0 if real (non-placeholder) credentials are present
 echo "Installing the boot notifier for user: ${TARGET_USER}"
 
 install -d -m 0755 "${INSTALL_DIR}"
-install -m 0755 "${REPO_ROOT}/notifier/notify.py" "${INSTALL_DIR}/notify.py"
+# Skip the copy when the source already IS the installed file (e.g. this script
+# was launched from the staged /opt copy) -- `install` would error on same-file.
+if [[ "${REPO_ROOT}/notifier/notify.py" -ef "${INSTALL_DIR}/notify.py" ]]; then
+    echo "  notify.py already in place (${INSTALL_DIR})."
+else
+    install -m 0755 "${REPO_ROOT}/notifier/notify.py" "${INSTALL_DIR}/notify.py"
+fi
 
 # Create the config from the example on first run; pre-fill SSH_USER. An
 # existing config is left in place (credentials are handled below).

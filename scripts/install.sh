@@ -188,6 +188,25 @@ step_base() {
             install -m 0755 "${REPO_ROOT}/scripts/${s}" "${OPT_DIR}/scripts/${s}"
         fi
     done
+    # Stage the notifier programs into the same /opt tree. This makes the
+    # installed copy self-contained, so the staged setup scripts (and
+    # `turtlengine bot setup`) can install/run them without the repo clone.
+    install -d -m 0755 "${OPT_DIR}/notifier"
+    local p
+    for p in notify.py bot.py; do
+        if [[ -f "${REPO_ROOT}/notifier/${p}" ]]; then
+            install -m 0755 "${REPO_ROOT}/notifier/${p}" "${OPT_DIR}/notifier/${p}"
+        fi
+    done
+    # Stage the systemd unit templates too, so `turtlengine bot setup` (and a
+    # setup script re-run from /opt) can install them without the repo clone.
+    install -d -m 0755 "${OPT_DIR}/systemd"
+    local u
+    for u in nas-notifier.service turtlebot.service; do
+        if [[ -f "${REPO_ROOT}/systemd/${u}" ]]; then
+            install -m 0644 "${REPO_ROOT}/systemd/${u}" "${OPT_DIR}/systemd/${u}"
+        fi
+    done
     ln -sf "${OPT_DIR}/scripts/turtlengine" "${CLI_LINK}"
 }
 
