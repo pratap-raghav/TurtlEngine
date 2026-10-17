@@ -48,7 +48,9 @@ echo ""
 # ---------------------------------------------------------------------------
 if [[ "${MODE}" == "format" ]]; then
     echo "WARNING: this will ERASE ALL DATA on ${DEVICE}."
-    read -r -p "Re-type the device name (${DEVICE}) to confirm: " confirm
+    # `|| confirm=""` so EOF (non-interactive) falls through to the mismatch
+    # branch and aborts cleanly, rather than a bare `set -e` exit.
+    read -r -p "Re-type the device name (${DEVICE}) to confirm: " confirm || confirm=""
     if [[ "${confirm}" != "${DEVICE}" ]]; then
         echo "Confirmation did not match; aborting." >&2
         exit 1
