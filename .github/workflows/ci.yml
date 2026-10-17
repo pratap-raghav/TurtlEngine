@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [init_dev, dev, main]
+  pull_request:
+    branches: [init_dev, dev, main]
+
+# Least privilege: the checks only need to read the repo.
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    name: ShellCheck + bash syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Pin the exact ShellCheck used to validate locally, so CI findings match.
+      - name: Install ShellCheck v0.10.0
+        run: |
+          curl -fsSL https://github.com/koalaman/shellcheck/releases/download/v0.10.0/shellcheck-v0.10.0.linux.x86_64.tar.xz | tar -xJ
+          sudo install -m 0755 shellcheck-v0.10.0/shellcheck /usr/local/bin/shellcheck
+          shellcheck --version
+
+      # SC1091 excluded: sourced paths are resolved at runtime, not statically.
+      - name: ShellCheck (fail on warning or above)
+        run: |
+          shellcheck -S warning -e SC1091 \
+            scripts/install.sh scripts/setup-notifier.sh scripts/setup-bot.sh \
+            scripts/setup-samba.sh scripts/mount-drive.sh scripts/turtlengine \
+            tests/*.sh
+
+      - name: Bash syntax check (bash -n)
+        run: |
+          for f in scripts/install.sh scripts/setup-notifier.sh scripts/setup-bot.sh \
+                   scripts/setup-samba.sh scripts/mount-drive.sh scripts/turtlengine \
+                   tests/*.sh; do
+            bash -n "$f" && echo "ok: $f"
+          done
+
+  python-tests:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # The product is stdlib-only, so there is nothing to install.
+      - name: Byte-compile (catch syntax errors on every version)
+        run: python -m py_compile notifier/notify.py notifier/bot.py tests/*.py
+
+      - name: Unit tests
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
+
+  full-suite:
+    name: Full suite (root-gated tests included)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # Run as root so the setup-notifier and mount-drive tests actually execute
+      # (they self-skip with exit 77 when they cannot run safely, never fail).
+      - name: Run tests/run.sh as root
+        run: sudo bash tests/run.sh
