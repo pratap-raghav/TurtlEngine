@@ -37,6 +37,11 @@ if ! id "${OWNER}" >/dev/null 2>&1; then
     echo "User ${OWNER} does not exist." >&2
     exit 1
 fi
+if [[ "${OWNER}" == "root" ]]; then
+    echo "WARNING: the bot would run as root. It is designed to run as a" >&2
+    echo "         non-root owner. Re-run as 'sudo ./scripts/setup-bot.sh <user>'" >&2
+    echo "         (or 'sudo turtlengine bot setup') to run it as that user." >&2
+fi
 
 # --- helpers ----------------------------------------------------------------
 ask_yes() {
@@ -88,9 +93,22 @@ fi
 echo "Setting up the TurtlEngine command bot (runs as: ${OWNER}, non-root)."
 
 # --- 2. Install bot.py alongside notify.py ----------------------------------
+# Install both as a matched pair (bot.py imports notify.py at runtime). Skip any
+# file whose source already IS the destination -- this happens when the script
+# runs from the staged /opt copy (e.g. `turtlengine bot setup`), where `install`
+# would otherwise error on same-file.
 install -d -m 0755 "${INSTALL_DIR}"
-install -m 0755 "${REPO_ROOT}/notifier/bot.py" "${INSTALL_DIR}/bot.py"
-echo "  Installed bot.py -> ${INSTALL_DIR}/bot.py"
+for p in notify.py bot.py; do
+    if [[ "${REPO_ROOT}/notifier/${p}" -ef "${INSTALL_DIR}/${p}" ]]; then
+        echo "  ${p} already in place (${INSTALL_DIR})."
+    elif [[ -f "${REPO_ROOT}/notifier/${p}" ]]; then
+        install -m 0755 "${REPO_ROOT}/notifier/${p}" "${INSTALL_DIR}/${p}"
+        echo "  Installed ${p} -> ${INSTALL_DIR}/${p}"
+    else
+        echo "ERROR: ${REPO_ROOT}/notifier/${p} not found." >&2
+        exit 1
+    fi
+done
 
 # --- 3. Determine and CONFIRM the authorised Telegram user id ---------------
 # Only this numeric id (in the configured chat) may command the bot. The owner
