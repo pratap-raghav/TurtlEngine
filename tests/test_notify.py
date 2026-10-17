@@ -83,12 +83,37 @@ class TestMessageBuilder(unittest.TestCase):
         msg = notify.build_message(base_info(hostname="turtle-nas.local"))
         # Inside the `code` span the host must appear literally (no backslash).
         self.assertIn("`turtle-nas.local`", msg)
-        # The LAN command code span keeps the IP literal too.
-        self.assertIn("`ssh ghost@192.168.1.42 -t tmux new-session -A -s main`", msg)
+        # The command lives in a fenced code block and stays literal (no escapes).
+        self.assertIn("ssh ghost@192.168.1.42 -t tmux new-session -A -s main", msg)
+
+    def test_commands_are_copy_blocks(self):
+        """Commands are fenced code blocks (tap-to-copy), one per address."""
+        msg = notify.build_message(base_info())  # both LAN + Tailscale present
+        # Two reachable addresses -> two code fences -> >= 4 ``` markers.
+        self.assertGreaterEqual(msg.count("```"), 4)
 
     def test_custom_session_name_flows_through(self):
         msg = notify.build_message(base_info(tmux_session="work"))
-        self.assertIn("-s work`", msg)
+        self.assertIn("-s work", msg)        # in the command
+        self.assertIn("`work`", msg)         # in the tmux-status line
+
+    def test_system_info_rendered_when_present(self):
+        msg = notify.build_message(base_info(
+            cpu_model="Intel(R) Core(TM) i3", cpu_count=4,
+            mem_used_gib=2.1, mem_total_gib=5.8,
+            disk_used_gib=45, disk_total_gib=440, disk_pct=10,
+            loadavg=(0.12, 0.08, 0.05), kernel="7.0.0-38-generic"))
+        self.assertIn("4 cores", msg)
+        self.assertIn("RAM:", msg)
+        self.assertIn("Disk /:", msg)
+        self.assertIn("Load:", msg)
+        self.assertIn("`7.0.0-38-generic`", msg)          # kernel literal in code
+        self.assertIn(r"Intel\(R\) Core\(TM\) i3", msg)   # parens escaped in prose
+
+    def test_system_info_omitted_when_absent(self):
+        msg = notify.build_message(base_info())  # no cpu/mem/disk/load/kernel keys
+        for token in ("CPU:", "RAM:", "Disk /:", "Load:", "Kernel:"):
+            self.assertNotIn(token, msg)
 
 
 class TestBanner(unittest.TestCase):

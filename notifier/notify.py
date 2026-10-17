@@ -156,6 +156,71 @@ def get_uptime():
     return " ".join(parts)
 
 
+def get_cpu():
+    """Return (model_name, core_count); either may be None/0 on failure."""
+    model = None
+    count = 0
+    try:
+        with open("/proc/cpuinfo", "r", encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith("processor"):
+                    count += 1
+                elif model is None and line.startswith("model name"):
+                    model = line.split(":", 1)[1].strip()
+    except OSError:
+        pass
+    if not count:
+        count = os.cpu_count() or 0
+    return model, count
+
+
+def get_mem():
+    """Return (used_gib, total_gib) from /proc/meminfo, or (None, None)."""
+    try:
+        info = {}
+        with open("/proc/meminfo", "r", encoding="utf-8") as handle:
+            for line in handle:
+                key, _, value = line.partition(":")
+                info[key.strip()] = value.strip()
+        total_kb = int(info["MemTotal"].split()[0])
+        avail_kb = int(info.get("MemAvailable", "0").split()[0])
+    except (OSError, KeyError, ValueError, IndexError):
+        return None, None
+    gib = 1024 * 1024  # KiB -> GiB
+    return (total_kb - avail_kb) / gib, total_kb / gib
+
+
+def get_disk(path="/"):
+    """Return (used_gib, total_gib, percent_used) for the fs at path."""
+    try:
+        stat = os.statvfs(path)
+    except OSError:
+        return None, None, None
+    total = stat.f_blocks * stat.f_frsize
+    free = stat.f_bavail * stat.f_frsize
+    if total <= 0:
+        return None, None, None
+    used = total - free
+    gib = 1024 ** 3
+    return used / gib, total / gib, int(round(used * 100 / total))
+
+
+def get_loadavg():
+    """Return the 1/5/15-minute load-average tuple, or None."""
+    try:
+        return os.getloadavg()
+    except (OSError, AttributeError):
+        return None
+
+
+def get_kernel():
+    """Return the kernel release string, or None."""
+    try:
+        return os.uname().release
+    except AttributeError:
+        return None
+
+
 def tmux_socket_for_user(user):
     """Default tmux socket path for a user, or None if the user is unknown.
 
@@ -222,6 +287,9 @@ def gather_info(config):
     """Collect everything the message needs into one dict (easy to fake/test)."""
     user = config.get("SSH_USER") or os.environ.get("SUDO_USER") or os.environ.get("USER") or "user"
     session = config.get("TMUX_SESSION") or "main"
+    cpu_model, cpu_count = get_cpu()
+    mem_used, mem_total = get_mem()
+    disk_used, disk_total, disk_pct = get_disk("/")
     return {
         "hostname": socket.gethostname(),
         "lan_ip": get_lan_ip(),
@@ -230,6 +298,15 @@ def gather_info(config):
         "tmux_alive": tmux_session_alive(session, user),
         "ssh_user": user,
         "tmux_session": session,
+        "cpu_model": cpu_model,
+        "cpu_count": cpu_count,
+        "mem_used_gib": mem_used,
+        "mem_total_gib": mem_total,
+        "disk_used_gib": disk_used,
+        "disk_total_gib": disk_total,
+        "disk_pct": disk_pct,
+        "loadavg": get_loadavg(),
+        "kernel": get_kernel(),
     }
 
 
@@ -240,35 +317,58 @@ def build_message(info):
     - A reachable address contributes one "label + command" pair.
     - A missing IP omits its line; with neither IP we say so plainly.
     """
-    lines = ["🐢 *TurtlEngine* is up"]
-    lines.append("Host: `%s`" % md2_code_escape(info["hostname"]))
+    lines = ["🐢 *TurtlEngine* is up", ""]
+    lines.append("🖥 Host: `%s`" % md2_code_escape(info["hostname"]))
     if info.get("uptime"):
-        lines.append("Uptime: %s" % md2_escape(info["uptime"]))
+        lines.append("⏱ Uptime: %s" % md2_escape(info["uptime"]))
+    if info.get("cpu_model"):
+        cpu = info["cpu_model"]
+        if info.get("cpu_count"):
+            cpu = "%s (%d cores)" % (cpu, info["cpu_count"])
+        lines.append("🧮 CPU: %s" % md2_escape(cpu))
+    if info.get("mem_total_gib"):
+        lines.append(
+            "🧠 RAM: %s"
+            % md2_escape("%.1f / %.1f GiB used"
+                         % (info.get("mem_used_gib") or 0.0, info["mem_total_gib"]))
+        )
+    if info.get("disk_total_gib"):
+        lines.append(
+            "💾 Disk /: %s"
+            % md2_escape("%.0f / %.0f GiB (%d%% used)"
+                         % (info.get("disk_used_gib") or 0.0,
+                            info["disk_total_gib"], info.get("disk_pct") or 0))
+        )
+    if info.get("loadavg"):
+        lines.append("📊 Load: %s" % md2_escape("%.2f %.2f %.2f" % tuple(info["loadavg"])))
+    if info.get("kernel"):
+        lines.append("🐧 Kernel: `%s`" % md2_code_escape(info["kernel"]))
 
     session = info["tmux_session"]
-    if info.get("tmux_alive"):
-        lines.append("tmux session `%s`: alive" % md2_code_escape(session))
-    else:
-        lines.append("tmux session `%s`: not started" % md2_code_escape(session))
+    state = "alive ✅" if info.get("tmux_alive") else "not started ⚪"
+    lines.append("🧩 tmux `%s`: %s" % (md2_code_escape(session), state))
 
     user = info["ssh_user"]
     reachable = []
     if info.get("lan_ip"):
-        reachable.append(("Home / LAN", info["lan_ip"]))
+        reachable.append(("🏠 Home / LAN", info["lan_ip"]))
     if info.get("tailscale_ip"):
-        reachable.append(("Anywhere / Tailscale", info["tailscale_ip"]))
+        reachable.append(("🌍 Anywhere / Tailscale", info["tailscale_ip"]))
 
     if reachable:
         lines.append("")
+        lines.append(md2_escape("Tap a command to copy it, then paste into your terminal:"))
         for label, ip in reachable:
             # new-session -A attaches to the session if it exists, or creates
             # it if not -- so the very first connect after a boot works too.
             command = "ssh %s@%s -t tmux new-session -A -s %s" % (user, ip, session)
-            # Inside a MarkdownV2 code span only ` and \ need escaping; ssh
-            # commands contain neither, but escape defensively anyway.
-            code = md2_code_escape(command)
-            lines.append("*%s*" % md2_escape(label))
-            lines.append("`%s`" % code)
+            lines.append("")
+            lines.append("*%s* \\(%s\\)" % (md2_escape(label), md2_escape(ip)))
+            # A fenced code block renders with a one-tap "copy" button in the
+            # Telegram apps. Inside it only ` and \ need escaping.
+            lines.append("```")
+            lines.append(md2_code_escape(command))
+            lines.append("```")
     else:
         lines.append("")
         lines.append(md2_escape("No LAN or Tailscale address available yet."))
