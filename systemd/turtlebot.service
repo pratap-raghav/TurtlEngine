@@ -1,0 +1,36 @@
+[Unit]
+Description=TurtlEngine Telegram command bot (read-only)
+Wants=network-online.target
+After=network-online.target tailscaled.service nas-notifier.service
+# Separate from nas-notifier.service: the boot notifier stays a oneshot that
+# only sends outbound messages. This is the long-running interactive listener.
+
+[Service]
+Type=simple
+Restart=on-failure
+RestartSec=5
+EnvironmentFile=/etc/turtlebot.env
+ExecStart=/usr/bin/python3 /opt/turtlengine/notifier/bot.py
+# Runs as the box OWNER (non-root), never root. setup-bot.sh fills in the user.
+# Running as the owner lets it read that user's tmux socket for /sessions while
+# staying unprivileged; it is NEVER granted sudo.
+User=__TURTLE_USER__
+
+# --- Hardening --------------------------------------------------------------
+# Conservative, matching the notifier: leaves intact what the bot needs --
+# outbound network, reading /etc/turtlebot.env, the tailscaled socket under
+# /run, and the user's tmux socket under /tmp. PrivateTmp is deliberately NOT
+# set (it would hide /tmp/tmux-<uid>); ProtectSystem=full (not strict) keeps
+# /run writable for the tailscaled socket.
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=read-only
+ProtectControlGroups=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

@@ -16,6 +16,9 @@
 #   sudo turtlengine share remove [name]   remove a share config (keeps files)
 #        turtlengine logs [-f]       view the boot-notifier's logs (-f follows)
 #   sudo turtlengine notify          send a status card to Telegram now
+#   sudo turtlengine bot setup       install the read-only Telegram command bot
+#        turtlengine bot status|logs status / logs of the command bot
+#   sudo turtlengine bot restart     restart the command bot
 
 set -euo pipefail
 
@@ -273,6 +276,47 @@ cmd_notify() { # send a status card to Telegram now (triggers the notifier)
     fi
 }
 
+cmd_bot() { # manage the read-only Telegram command bot
+    case "${1:-}" in
+        setup)
+            need_root bot setup
+            local script
+            script="$(find_script setup-bot.sh)" || exit 1
+            "${script}" "${SUDO_USER:-root}"
+            ;;
+        status)
+            printf '  %-14s %s / %s\n' "turtlebot" \
+                "$(svc is-active turtlebot.service)" "$(svc is-enabled turtlebot.service)"
+            ;;
+        logs)
+            if ! command -v journalctl >/dev/null 2>&1; then
+                echo "journalctl is not available on this system." >&2
+                exit 1
+            fi
+            case "${2:-}" in
+                -f|--follow)
+                    echo "Following turtlebot.service -- Ctrl-C to stop."
+                    journalctl -u turtlebot.service -f
+                    ;;
+                *) journalctl -u turtlebot.service -b --no-pager ;;
+            esac
+            ;;
+        restart)
+            need_root bot restart
+            if systemctl restart turtlebot.service; then
+                echo "turtlebot restarted."
+            else
+                echo "restart failed; see: turtlengine bot logs" >&2
+                exit 1
+            fi
+            ;;
+        *)
+            echo "Usage: turtlengine bot {setup|status|logs [-f]|restart}" >&2
+            exit 2
+            ;;
+    esac
+}
+
 # --- interactive menu -------------------------------------------------------
 menu() {
     local choice
@@ -323,6 +367,10 @@ Usage:
   sudo turtlengine share remove [name]  remove a share config (keeps files)
        turtlengine logs [-f]            view the boot-notifier's logs (-f follows)
   sudo turtlengine notify               send a status card to Telegram now
+  sudo turtlengine bot setup            install the read-only Telegram command bot
+       turtlengine bot status           is the command bot running?
+       turtlengine bot logs [-f]        view the command bot's logs
+  sudo turtlengine bot restart          restart the command bot
 USAGE
 }
 
@@ -347,6 +395,7 @@ main() {
             esac ;;
         logs) cmd_logs "${2:-}" ;;
         notify) cmd_notify ;;
+        bot) cmd_bot "${2:-}" "${3:-}" ;;
         -h|--help|help) usage ;;
         *) echo "Unknown command: ${cmd}" >&2; usage; exit 2 ;;
     esac
