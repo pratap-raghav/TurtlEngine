@@ -111,8 +111,9 @@ grep -q '^TELEGRAM_BOT_TOKEN=111222333:RealWorkingTokenValue$' "${ENV_C}" \
     || fail "C: working token was not preserved"
 
 # --- Scenario D: full entry saves; a later run then guards the overwrite ----
+# Input order: token, [Enter at the START gate], chat id, decline the test send.
 ENV_D="${TMP}/etc/env-d"
-run_setup "${ENV_D}" $'123:MyRealToken\n5555555\nn\n' || fail "D: exited non-zero on full entry"
+run_setup "${ENV_D}" $'123:MyRealToken\n\n5555555\nn\n' || fail "D: exited non-zero on full entry"
 grep -q '^TELEGRAM_BOT_TOKEN=123:MyRealToken$' "${ENV_D}" || fail "D: token was not saved"
 grep -q '^TELEGRAM_CHAT_ID=5555555$' "${ENV_D}"         || fail "D: chat id was not saved"
 d_perms="$(stat -c '%a' "${ENV_D}")"
