@@ -83,17 +83,23 @@ def parse_command(text):
 def get_storage():
     """List real mounted filesystems as (mount, used_gib, total_gib, pct, fs).
 
-    Returns None only if /proc/mounts can't be read at all.
+    One row per distinct filesystem: mounts that share an underlying device are
+    collapsed to a single row at the shortest mount path. Without this, the bind
+    mounts systemd sandboxing adds for us (ProtectSystem/ProtectHome bind /etc,
+    /home, /usr, ... read-only) each show up in our mount namespace and the one
+    root disk would otherwise render as half a dozen identical rows. Returns None
+    only if /proc/mounts can't be read at all.
     """
-    rows = []
+    best = {}   # st_dev -> (mount, used_gib, total_gib, pct, fs)
     try:
         with open("/proc/mounts", "r", encoding="utf-8") as handle:
             for line in handle:
                 parts = line.split()
                 if len(parts) < 3 or parts[2] not in REAL_FS:
                     continue
-                mount = parts[1]
+                mount = parts[1].replace("\\040", " ")
                 try:
+                    key = os.stat(mount).st_dev
                     stat = os.statvfs(mount)
                 except OSError:
                     continue
@@ -102,12 +108,14 @@ def get_storage():
                     continue
                 used = total - stat.f_bavail * stat.f_frsize
                 gib = 1024 ** 3
-                rows.append((mount.replace("\\040", " "),
-                             used / gib, total / gib,
-                             int(round(used * 100 / total)), parts[2]))
+                row = (mount, used / gib, total / gib,
+                       int(round(used * 100 / total)), parts[2])
+                prev = best.get(key)
+                if prev is None or len(mount) < len(prev[0]):
+                    best[key] = row
     except OSError:
         return None
-    return rows
+    return list(best.values())
 
 
 def get_sessions(user):
