@@ -48,9 +48,28 @@ echo ""
 # ---------------------------------------------------------------------------
 if [[ "${MODE}" == "format" ]]; then
     echo "WARNING: this will ERASE ALL DATA on ${DEVICE}."
+
+    # Refuse to format a device that is in use. `lsblk` lists the device and
+    # every partition on it; a non-empty MOUNTPOINT means it is mounted (a real
+    # path) or is active swap ("[SWAP]"). This also protects the OS/root disk,
+    # whose partitions ( /, /boot, ... ) are always mounted on a running system.
+    in_use="$(lsblk -nro NAME,MOUNTPOINT "${DEVICE}" 2>/dev/null | awk 'NF>1' || true)"
+    if [[ -n "${in_use}" ]]; then
+        echo "Error: ${DEVICE} has mounted or in-use (swap) partitions:" >&2
+        printf '%s\n' "${in_use}" | sed 's/^/  /' >&2
+        echo "       Unmount them (and 'swapoff' any swap) first." >&2
+        echo "       Nothing was changed; refusing to format a device in use." >&2
+        exit 1
+    fi
+
+    # Show what is currently on the disk so the confirmation is informed.
+    echo "Current layout of ${DEVICE}:"
+    lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT "${DEVICE}" 2>/dev/null | sed 's/^/  /' || true
+    echo ""
+
     # `|| confirm=""` so EOF (non-interactive) falls through to the mismatch
     # branch and aborts cleanly, rather than a bare `set -e` exit.
-    read -r -p "Re-type the device name (${DEVICE}) to confirm: " confirm || confirm=""
+    read -r -p "Re-type the device name (${DEVICE}) to confirm ERASE: " confirm || confirm=""
     if [[ "${confirm}" != "${DEVICE}" ]]; then
         echo "Confirmation did not match; aborting." >&2
         exit 1
@@ -109,8 +128,12 @@ FSTAB_LINE="UUID=${UUID} ${MOUNTPOINT} ext4 defaults,nofail 0 2"
 if grep -q "UUID=${UUID}" "${FSTAB}"; then
     echo "    UUID already in ${FSTAB}; not adding again."
 else
+    # Back up before editing so the original is recoverable if anything goes
+    # wrong. The entry uses nofail, so even a bad line can never block boot.
+    cp "${FSTAB}" "${FSTAB}.turtlengine.bak" 2>/dev/null || true
     echo "${FSTAB_LINE}" >> "${FSTAB}"
     echo "    added to ${FSTAB}: ${FSTAB_LINE}"
+    echo "    (backup: ${FSTAB}.turtlengine.bak)"
 fi
 
 echo "==> Mounting..."

@@ -40,9 +40,10 @@ Not automated: it requires a real boot cycle on the target NAS. After an
 install, reboot and confirm:
 
 1. `systemctl is-enabled ssh` → `enabled`, and you can SSH in immediately.
-2. `swapon --show` lists `/swapfile`; `findmnt <data-mountpoint>` shows the data
-   drive mounted (and boot still succeeds if the data drive is pulled, thanks to
-   `nofail`).
+2. `findmnt <data-mountpoint>` shows any data drive you mounted is back after
+   the reboot — and, because its fstab entry uses `nofail`, boot still succeeds
+   even if that drive is pulled. (TurtlEngine configures no swap, so there is
+   nothing swap-related to verify here.)
 3. `journalctl -u nas-notifier.service -b` shows one clean run (and a Telegram
    message arrived). On failure the unit is `failed`, not looping.
 
