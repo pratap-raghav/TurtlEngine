@@ -340,7 +340,14 @@ For the README/MOTD text file, use the same art without the Python wrapper:
   box runs with no configured swap (`SWAP_SIZE_GB`, `vm.swappiness`, and the fstab
   swap line are all gone).
 - The **TurtlEngine banner prints first**, before any provisioning work.
-- Installs the `turtlengine` CLI + helper scripts to `/opt/turtlengine/scripts`.
+- Installs the `turtlengine` CLI + helper scripts to `/opt/turtlengine/scripts`,
+  and also **stages the notifier programs** (`notify.py`, `bot.py`) under
+  `/opt/turtlengine/notifier` and the **systemd unit templates** under
+  `/opt/turtlengine/systemd`. This makes the `/opt` tree self-contained, so
+  `turtlengine bot setup` (which runs the staged `setup-bot.sh`) can install the
+  bot without the repo clone. The setup scripts guard their copies with a
+  same-file (`-ef`) test so re-running from `/opt` never errors on identical
+  source/destination.
 - Ends with a **two-part summary**: what was done automatically vs. the remaining
   manual steps. It does **not** claim Tailscale or Telegram are configured.
 - Does **not** format disks, mount drives, or create shares — storage and shares
@@ -348,8 +355,12 @@ For the README/MOTD text file, use the same art without the Python wrapper:
 
 **notify.py**
 - The boot message is a **status card**: host, uptime, CPU / RAM / disk / load /
-  kernel (from `/proc` + `os.statvfs`), plus a **tap-to-copy** fenced code block
-  with the reconnect command for each reachable address.
+  kernel (from `/proc` + `os.statvfs`), plus the reconnect command for each
+  reachable address as a **tap-to-copy inline code span** (single backticks,
+  like BotFather's token — Telegram mobile copies these on tap, which it does
+  **not** do reliably for fenced blocks). The command bot uses the same inline
+  code for single-line commands; multi-line output (storage table, `/logs`)
+  stays in fenced blocks.
 - A `--welcome` mode sends a celebratory setup-complete message first, then the
   card; `setup-notifier.sh` runs it automatically when configuration finishes.
 - The reconnect command is **`tmux new-session -A -s <session>`** (attach-or-
