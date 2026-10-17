@@ -87,8 +87,9 @@ each reachable address on every boot.
 
 ## Telegram boot-notifier
 
-The notifier messages you a paste-ready reconnect command on every boot — handy
-from the phone, where it's one tap.
+The notifier messages you a status card on every boot — host, uptime, CPU / RAM
+/ disk / load / kernel, and a **tap-to-copy** reconnect command for each address
+(LAN and Tailscale). Handy from the phone, where it's one tap.
 
 Setup is guided — during `install.sh`, or by running
 `sudo ./scripts/setup-notifier.sh` any time:

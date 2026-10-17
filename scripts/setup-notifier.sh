@@ -129,16 +129,9 @@ systemctl daemon-reload
 systemctl enable nas-notifier.service >/dev/null 2>&1 || true
 echo "  Notifier installed and enabled to run on every boot."
 
-# --- 2. Explain, then configure credentials ---------------------------------
-cat <<'EOF'
-
-  The notifier sends you a Telegram message after each boot with a ready-to-paste
-  command to reconnect. To finish, it needs two things from Telegram:
-    1) a BOT TOKEN   -- from @BotFather
-    2) your CHAT ID  -- detected automatically once you've pressed START
-EOF
-
-# If real credentials already exist, ask before replacing them.
+# --- 2. Configure credentials -----------------------------------------------
+# Check for existing credentials FIRST, so we only walk through the whole
+# bot-creation flow when there's actually something to set up.
 if creds_configured; then
     echo ""
     echo "  Telegram credentials are already saved in ${ENV_PATH}."
@@ -148,7 +141,17 @@ if creds_configured; then
         echo "  Done. Test anytime with:  sudo systemctl start nas-notifier.service"
         exit 0
     fi
+    echo ""
+    echo "  OK -- let's set up new credentials."
 fi
+
+cat <<'EOF'
+
+  The notifier sends you a Telegram message after each boot with a ready-to-paste
+  command to reconnect. To finish, it needs two things from Telegram:
+    1) a BOT TOKEN   -- from @BotFather
+    2) your CHAT ID  -- detected automatically once you've pressed START
+EOF
 
 echo ""
 echo "  Step 1 - create your bot and copy its token."

@@ -332,6 +332,9 @@ For the README/MOTD text file, use the same art without the Python wrapper:
   are entirely user-driven afterwards via the CLI/helpers.
 
 **notify.py**
+- The boot message is a **status card**: host, uptime, CPU / RAM / disk / load /
+  kernel (from `/proc` + `os.statvfs`), plus a **tap-to-copy** fenced code block
+  with the reconnect command for each reachable address.
 - The reconnect command is **`tmux new-session -A -s <session>`** (attach-or-
   create), not `tmux attach -t`, so the first connect after a cold boot works.
 - MarkdownV2 escaping is **split**: full escaping for prose, and a narrower
