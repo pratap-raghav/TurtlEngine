@@ -93,13 +93,14 @@ from the phone, where it's one tap.
 Setup is guided — during `install.sh`, or by running
 `sudo ./scripts/setup-notifier.sh` any time:
 
-1. **Create a bot.** In the Telegram app, message **@BotFather**, send `/newbot`,
-   follow the prompts, and paste the **token** into the terminal. BotFather is a
-   chat bot, so you use the app — no web page, which also sidesteps ISPs that
-   block the `t.me` website.
-2. **Get your chat id.** Send your new bot any message, then press Enter to
-   **auto-detect** it (the setup reads it from the bot's recent updates). You can
-   also paste it directly, or get it from **@userinfobot**.
+1. **Create a bot.** Message **@BotFather** (the setup opens it via
+   `telegram.me`, which often loads even where `t.me` is blocked — or just use
+   the Telegram app), send `/newbot`, follow the prompts, and paste the **token**
+   into the terminal.
+2. **Get your chat id** — a number like `123456789` identifying *your* chat, not
+   the bot's `@name`. Send your new bot any message, then press Enter to
+   **auto-detect** it (the setup reads it from the bot's recent updates); or
+   paste it directly, or get it from **@userinfobot**.
 3. **It saves and offers a test.** Credentials are written to
    `/etc/nas-notifier.env` (chmod 600); if real credentials already exist it
    asks before replacing them. Accept the test to confirm a message arrives.
