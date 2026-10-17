@@ -26,6 +26,14 @@ bash tests/run.sh
 | 6 | Storage failure — missing UUID writes no fstab entry | `test_mount_drive.sh` | real root + `losetup`, else SKIP |
 | 7 | Reboot recovery — SSH up, data mounts, notifier runs | manual (see below) | integration only |
 
+Additional coverage for the later change waves:
+
+| Area | Test | How it runs |
+| --- | --- | --- |
+| Banner printed at install start, swap step removed, no auto share/format | `test_install.sh` | static, everywhere |
+| Banner printed by the notifier | `test_notify.py::TestBanner` | automated, everywhere |
+| CLI: invalid args, share list/remove, multiple independent shares, cancel | `test_turtlengine.sh` | automated (fixture smb.conf), everywhere |
+
 ### Item 7 — reboot recovery (manual integration check)
 
 Not automated: it requires a real boot cycle on the target NAS. After an

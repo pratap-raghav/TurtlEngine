@@ -91,6 +91,17 @@ class TestMessageBuilder(unittest.TestCase):
         self.assertIn("-s work`", msg)
 
 
+class TestBanner(unittest.TestCase):
+    def test_banner_prints_tagline(self):
+        """The notifier prints the TurtlEngine banner on every run."""
+        buf = io.StringIO()
+        with mock.patch("sys.stdout", buf):
+            notify.print_banner()
+        out = buf.getvalue()
+        self.assertIn("T u r t l E n g i n e", out)
+        self.assertIn("slow is smooth, smooth is fast", out)
+
+
 class TestTmuxCheck(unittest.TestCase):
     def test_item1_targets_other_users_socket(self):
         """Item 1: a distinct user -> tmux points at /tmp/tmux-<uid>/default."""
