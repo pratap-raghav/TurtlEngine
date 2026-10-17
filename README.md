@@ -158,6 +158,11 @@ sudo ./scripts/mount-drive.sh /dev/sdb1 /mnt/nas-1tb
 sudo ./scripts/mount-drive.sh /dev/sdb /mnt/nas-1tb --format
 ```
 
+`--format` refuses to touch a device that has mounted or active-swap partitions
+— so it will not erase the OS/root disk — prints the drive's current layout, and
+then makes you re-type the device name before anything is erased. `/etc/fstab` is
+backed up before the `nofail` entry is added.
+
 ### Add an SMB share
 
 ```bash
@@ -170,9 +175,11 @@ it validates the directory and user, reports which filesystem the path is on,
 **warns and re-confirms** if the path is on the root filesystem or a
 system-critical location, and never changes ownership recursively (it offers to
 set the top-level owner only, and only if you say yes). Re-running never
-duplicates an existing `[share]` block. Share name defaults to the directory's
-basename. Prints Windows / iOS / Android connect strings; the SMB password is
-separate from the Linux password.
+duplicates an existing `[share]` block. It backs up `smb.conf` before editing,
+validates the result with `testparm` (restoring the backup if validation fails),
+and **reloads** `smbd` rather than restarting it, so existing connections aren't
+dropped. Share name defaults to the directory's basename. Prints Windows / iOS /
+Android connect strings; the SMB password is separate from the Linux password.
 
 To remove a share later without deleting its files:
 

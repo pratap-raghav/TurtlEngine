@@ -292,3 +292,70 @@ For the README/MOTD text file, use the same art without the Python wrapper:
 6. `motd/turtlengine.txt` + `README.md` (both using the §11 banner).
 7. Validate everything (`py_compile`, `bash -n`, executable bits), then
    `git init` and first commit.
+
+---
+
+## Current state (as built) — reconciliation with this plan
+
+> Everything above is the **original brainstorming spec**, kept verbatim as a
+> historical record of the idea. The implementation has since evolved; where the
+> code differs from the plan above, the **code is authoritative**. This section
+> records those deviations so the document reflects the current state without
+> rewriting the original intent. (Updated 2026-10-17.)
+
+**New components not in the original tree**
+- `scripts/turtlengine` — a local Bash CLI to manage the box after install:
+  `status`, `storage list|mount`, `share add|list|remove`, and an interactive
+  `menu`. Discovery is read-only; mutations require root + confirmation. Installed
+  to `/opt/turtlengine/scripts/` and symlinked to `/usr/local/bin/turtlengine`.
+- `tests/` — a reliability test suite (stdlib `unittest` for `notify.py`; Bash
+  tests with path overrides and a stubbed `systemctl`). Root-gated tests self-skip
+  (exit 77) when they cannot run safely.
+- `docs/requirement/CONTEXT.md` — this document.
+
+**install.sh**
+- The **swapfile step (§1.5) was removed entirely** and is not recreated — the
+  box runs with no configured swap (`SWAP_SIZE_GB`, `vm.swappiness`, and the fstab
+  swap line are all gone).
+- The **TurtlEngine banner prints first**, before any provisioning work.
+- Installs the `turtlengine` CLI + helper scripts to `/opt/turtlengine/scripts`.
+- Ends with a **two-part summary**: what was done automatically vs. the remaining
+  manual steps. It does **not** claim Tailscale or Telegram are configured.
+- Does **not** format disks, mount drives, or create shares — storage and shares
+  are entirely user-driven afterwards via the CLI/helpers.
+
+**notify.py**
+- The reconnect command is **`tmux new-session -A -s <session>`** (attach-or-
+  create), not `tmux attach -t`, so the first connect after a cold boot works.
+- MarkdownV2 escaping is **split**: full escaping for prose, and a narrower
+  code-span escape (only `` ` `` and `\`) inside code spans, so code spans don't
+  render stray backslashes.
+- The tmux liveness check targets the **invoking user's** tmux socket
+  (`/tmp/tmux-<uid>/default`), not root's.
+
+**systemd/nas-notifier.service**
+- Hardened: `NoNewPrivileges`, `ProtectSystem=full`, `ProtectHome`, plus kernel/
+  cgroup protections. `PrivateTmp` is deliberately **not** set (the notifier needs
+  the user's `/tmp` tmux socket); `ProtectSystem=full` (not `strict`) keeps `/run`
+  writable for the tailscaled socket.
+
+**mount-drive.sh**
+- `--format` **refuses a device with mounted or active-swap partitions** (which
+  also protects the OS/root disk), prints the current layout, then requires the
+  device name to be re-typed before erasing. `/etc/fstab` is backed up before the
+  `nofail` entry is appended.
+
+**setup-samba.sh**
+- Shares are **independent and user-chosen** — any directory/user/name, not tied
+  to a single data disk, and never auto-created at install.
+- **Warns and re-confirms** if the path is on the root filesystem or a
+  system-critical location.
+- Ownership changes are **opt-in and non-recursive** (top-level only, on an
+  explicit yes) — not an automatic `chown`.
+- Backs up `smb.conf`, validates with `testparm` (restoring on failure), and
+  **reloads** smbd rather than restarting it.
+
+**Unchanged from the plan:** idempotency; no secrets in git
+(`/etc/nas-notifier.env` is chmod 600 and gitignored); key-based SSH only;
+BIOS/Legacy awareness; the ASCII banner (§11); and the "manual steps stay out of
+the scripts" list.
