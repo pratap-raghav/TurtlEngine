@@ -47,6 +47,8 @@ mkdir -p "${TMP}/etc"
 
 # Keep the chat-id auto-detect offline and deterministic (no real Bot API call).
 export NOTIFIER_SKIP_AUTODETECT=1
+# Don't actually send a Telegram message (the setup-complete send) during tests.
+export NOTIFIER_SKIP_SEND=1
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
@@ -112,9 +114,9 @@ grep -q '^TELEGRAM_BOT_TOKEN=111222333:RealWorkingTokenValue$' "${ENV_C}" \
     || fail "C: working token was not preserved"
 
 # --- Scenario D: full entry saves; a later run then guards the overwrite ----
-# Input order: token, chat id typed at the retry prompt, decline the test send.
+# Input order: token, then the chat id typed at the retry prompt.
 ENV_D="${TMP}/etc/env-d"
-run_setup "${ENV_D}" $'123:MyRealToken\n5555555\nn\n' || fail "D: exited non-zero on full entry"
+run_setup "${ENV_D}" $'123:MyRealToken\n5555555\n' || fail "D: exited non-zero on full entry"
 grep -q '^TELEGRAM_BOT_TOKEN=123:MyRealToken$' "${ENV_D}" || fail "D: token was not saved"
 grep -q '^TELEGRAM_CHAT_ID=5555555$' "${ENV_D}"         || fail "D: chat id was not saved"
 d_perms="$(stat -c '%a' "${ENV_D}")"

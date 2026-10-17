@@ -314,10 +314,10 @@ EOF
 if [[ "${NOTIFIER_INSTALLED}" == "yes" && "${TAILSCALE_CONNECTED}" == "yes" ]]; then
     cat <<EOF
 
-  Note: Telegram was configured before Tailscale sign-in. If you ran the test
-  send earlier, send one more now so the message includes your Tailscale address
-  (the notifier reads the address fresh each run, so a restart is enough):
-         sudo systemctl start nas-notifier.service
+  Note: your setup-complete message was sent before Tailscale sign-in, so its
+  card shows only the LAN address. Send a fresh one to include Tailscale (the
+  notifier reads the address live each run):
+         turtlengine notify
 EOF
 fi
 

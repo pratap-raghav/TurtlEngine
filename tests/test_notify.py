@@ -115,6 +115,12 @@ class TestMessageBuilder(unittest.TestCase):
         for token in ("CPU:", "RAM:", "Disk /:", "Load:", "Kernel:"):
             self.assertNotIn(token, msg)
 
+    def test_welcome_message_is_celebratory_and_names_host(self):
+        msg = notify.build_welcome_message(base_info(hostname="Ghost-Screen"))
+        self.assertIn("TurtlEngine is live", msg)
+        self.assertIn("`Ghost-Screen`", msg)   # host in a literal code span
+        self.assertIn("🎉", msg)
+
 
 class TestBanner(unittest.TestCase):
     def test_banner_prints_tagline(self):

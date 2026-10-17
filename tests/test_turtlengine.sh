@@ -68,4 +68,14 @@ SMB_CONF="${CONF}" "${CLI}" share remove Storage1TB <<<"n" >/dev/null
 after="$(sha256sum "${CONF}" | awk '{print $1}')"
 [[ "${before}" == "${after}" ]] || fail "cancelled removal still modified the config"
 
-echo "PASS: turtlengine CLI args, share list/remove, multi-share and cancel."
+# --- notifier helpers are wired up ------------------------------------------
+help_out="$("${CLI}" --help 2>&1)"
+grep -q 'logs'   <<<"${help_out}" || fail "usage missing 'logs'"
+grep -q 'notify' <<<"${help_out}" || fail "usage missing 'notify'"
+
+# notify triggers the service, so it must refuse without root.
+if [[ "${EUID}" -ne 0 ]]; then
+    "${CLI}" notify >/dev/null 2>&1 && fail "notify should require root"
+fi
+
+echo "PASS: turtlengine CLI args, share list/remove, multi-share, cancel, logs/notify."

@@ -104,9 +104,12 @@ Setup is guided — during `install.sh`, or by running
    message to read. If nothing comes back it guides you to press START and
    retries; you can also type it manually — from **@userinfobot**, or via
    `curl -s "https://api.telegram.org/bot<TOKEN>/getUpdates" | jq '.result[].message.chat.id'`.
-3. **It saves and offers a test.** Credentials are written to
+3. **It saves and sends a welcome.** Credentials are written to
    `/etc/nas-notifier.env` (chmod 600); if real credentials already exist it
-   asks before replacing them. Accept the test to confirm a message arrives.
+   asks first before replacing them. On success it immediately sends a
+   setup-complete message, then your status card — so you know it works right
+   away. (Re-running also reinstalls `notify.py`, so it's how you pick up
+   notifier updates.)
 
 > **If your network blocks Telegram** (some ISPs intercept `t.me` and sometimes
 > `api.telegram.org`): the token step still works from the app, but auto-detect
@@ -119,9 +122,9 @@ Setup is guided — during `install.sh`, or by running
 invoking user and `main`). To reconfigure or test later without rebooting:
 
 ```bash
-sudo ./scripts/setup-notifier.sh            # re-run the guided setup
-sudo systemctl start nas-notifier.service   # send a test
-journalctl -u nas-notifier.service -b       # read the logs
+sudo ./scripts/setup-notifier.sh    # re-run the guided setup (reinstalls notify.py)
+sudo turtlengine notify             # send a status card now
+turtlengine logs                    # read the notifier logs
 ```
 
 The real `/etc/nas-notifier.env` is chmod 600 and gitignored — only
@@ -150,7 +153,12 @@ sudo turtlengine storage mount   # guided mount of a chosen filesystem
 sudo turtlengine share add       # configure one Samba share (guided)
      turtlengine share list      # list configured shares and their paths
 sudo turtlengine share remove X  # remove share X's config (keeps the files)
+     turtlengine logs            # view the boot-notifier's logs (-f to follow)
+sudo turtlengine notify          # send a status card to Telegram now
 ```
+
+The `logs` and `notify` commands wrap the underlying `journalctl` / `systemctl`
+calls, so you never have to remember them.
 
 `status` never prints secrets — it reports that `/etc/nas-notifier.env` exists
 and its permissions, not its contents.
