@@ -49,22 +49,28 @@ shares yourself afterwards with the CLI.
 ```bash
 git clone <this-repo> turtlengine
 cd turtlengine
-sudo ./scripts/install.sh      # idempotent; safe to re-run
+sudo ./scripts/install.sh      # guided; idempotent and safe to re-run
 ```
 
-`install.sh` finishes by printing exactly what it did automatically and what you
-still need to do by hand. The remaining manual steps are:
+The installer runs like a guided setup assistant. It shows each phase as a tidy
+`[n/6]` step (add `--verbose` to watch full command output; otherwise it's saved
+to `/var/log/turtlengine-install.log`), then walks you through the two
+interactive steps itself:
+
+- **Telegram notifier** — opens @BotFather and the `getUpdates` page in your
+  browser, takes your bot token and chat id, saves them (asking first if
+  credentials already exist), and offers a test send.
+- **Tailscale** — offers to run `tailscale up` so you can sign in right then.
+
+When it finishes it prints what's configured and a short checklist of anything
+left. The steps it deliberately does **not** automate:
 
 ```bash
-sudo tailscale up                 # 1. interactive login; enables remote access
-ssh-copy-id <user>@<nas-ip>       # 2. from the CLIENT (laptop/phone), not the NAS
-#    then verify key login works BEFORE disabling password auth (see Security notes)
-#    3-4. configure + test the Telegram notifier (see below)
-tmux new-session -A -s main       # 5. start your persistent session, on the NAS
+ssh-copy-id <user>@<nas-ip>       # from the CLIENT (laptop/phone), not the NAS
+#    verify key login works BEFORE disabling password auth (see Security notes)
+tmux new-session -A -s main       # start your persistent session, on the NAS
+sudo turtlengine                  # configure disks and shares, on your terms
 ```
-
-Nothing above is done for you — Tailscale is installed but not logged in, and the
-notifier is installed (if you opted in) but not configured.
 
 ### Reconnect from anywhere
 
@@ -83,26 +89,27 @@ each reachable address on every boot.
 The notifier messages you a paste-ready reconnect command on every boot — handy
 from the phone, where it's one tap.
 
-1. **Create a bot.** In Telegram, message [@BotFather](https://t.me/BotFather),
-   send `/newbot`, follow the prompts, and copy the **token**.
-2. **Get your chat id.** Send any message to your new bot once (so it may reply
-   to you), then open `https://api.telegram.org/bot<TOKEN>/getUpdates` in a
-   browser and read `"chat":{"id":<number>}`.
-3. **Install it.** Either answer `y` to the prompt during `install.sh`, or run:
-   ```bash
-   sudo ./scripts/setup-notifier.sh
-   ```
-4. **Fill in the config:**
-   ```bash
-   sudo nano /etc/nas-notifier.env
-   ```
-   Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. `SSH_USER` and `TMUX_SESSION`
-   are optional (they default to the invoking user and `main`).
-5. **Test without rebooting:**
-   ```bash
-   sudo systemctl start nas-notifier.service
-   journalctl -u nas-notifier.service -b
-   ```
+Setup is guided — during `install.sh`, or by running
+`sudo ./scripts/setup-notifier.sh` any time. It opens the pages you need and
+prompts for each value:
+
+1. **Create a bot.** It opens [@BotFather](https://t.me/BotFather); send
+   `/newbot`, follow the prompts, and paste the **token** back into the terminal.
+2. **Get your chat id.** Send your new bot any message once (so it may reply),
+   then the setup opens `https://api.telegram.org/bot<TOKEN>/getUpdates`; find
+   `"chat":{"id":<number>}` and paste the number.
+3. **It saves and offers a test.** Credentials are written to
+   `/etc/nas-notifier.env` (chmod 600); if real credentials already exist it
+   asks before replacing them. Accept the test to confirm a message arrives.
+
+`SSH_USER` and `TMUX_SESSION` in that file are optional (they default to the
+invoking user and `main`). To reconfigure or test later without rebooting:
+
+```bash
+sudo ./scripts/setup-notifier.sh            # re-run the guided setup
+sudo systemctl start nas-notifier.service   # send a test
+journalctl -u nas-notifier.service -b       # read the logs
+```
 
 The real `/etc/nas-notifier.env` is chmod 600 and gitignored — only
 `notifier/nas-notifier.env.example` is committed.
@@ -201,8 +208,10 @@ sudo turtlengine share remove Storage4TB    # backs up smb.conf, reloads smbd
 
 ## Manual steps (not automated on purpose)
 
-- `sudo tailscale up` — interactive browser login.
+- `sudo tailscale up` — interactive browser login. The installer offers to run
+  it for you; you can also run it anytime to (re)connect.
 - SSH key generation + `ssh-copy-id` — done on the client machines, not the NAS.
 - DHCP reservation / static IP — set on your router.
-- Filling `/etc/nas-notifier.env` with the real token and chat id.
+- Telegram token + chat id — the installer (and `setup-notifier.sh`) prompt for
+  these interactively; re-run `setup-notifier.sh` to change them later.
 - Disabling SSH password auth — see Security notes above.
