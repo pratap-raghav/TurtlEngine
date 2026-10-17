@@ -45,6 +45,9 @@ export ENV_PATH="${TMP}/etc/nas-notifier.env"
 export UNIT_PATH="${TMP}/etc/systemd/system/nas-notifier.service"
 mkdir -p "${TMP}/etc"
 
+# Keep the chat-id auto-detect offline and deterministic (no real Bot API call).
+export NOTIFIER_SKIP_AUTODETECT=1
+
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
 # Run setup-notifier.sh with an explicit stdin and an explicit ENV_PATH, so the

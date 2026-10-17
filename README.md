@@ -57,9 +57,10 @@ The installer runs like a guided setup assistant. It shows each phase as a tidy
 to `/var/log/turtlengine-install.log`), then walks you through the two
 interactive steps itself:
 
-- **Telegram notifier** — opens @BotFather and the `getUpdates` page in your
-  browser, takes your bot token and chat id, saves them (asking first if
-  credentials already exist), and offers a test send.
+- **Telegram notifier** — you create the bot in the Telegram app (@BotFather)
+  and paste its token; your chat id is auto-detected from the bot's recent
+  messages (or entered by hand). Saves them (asking first if credentials already
+  exist) and offers a test send.
 - **Tailscale** — offers to run `tailscale up` so you can sign in right then.
 
 When it finishes it prints what's configured and a short checklist of anything
@@ -90,17 +91,25 @@ The notifier messages you a paste-ready reconnect command on every boot — hand
 from the phone, where it's one tap.
 
 Setup is guided — during `install.sh`, or by running
-`sudo ./scripts/setup-notifier.sh` any time. It opens the pages you need and
-prompts for each value:
+`sudo ./scripts/setup-notifier.sh` any time:
 
-1. **Create a bot.** It opens [@BotFather](https://t.me/BotFather); send
-   `/newbot`, follow the prompts, and paste the **token** back into the terminal.
-2. **Get your chat id.** Send your new bot any message once (so it may reply),
-   then the setup opens `https://api.telegram.org/bot<TOKEN>/getUpdates`; find
-   `"chat":{"id":<number>}` and paste the number.
+1. **Create a bot.** In the Telegram app, message **@BotFather**, send `/newbot`,
+   follow the prompts, and paste the **token** into the terminal. BotFather is a
+   chat bot, so you use the app — no web page, which also sidesteps ISPs that
+   block the `t.me` website.
+2. **Get your chat id.** Send your new bot any message, then press Enter to
+   **auto-detect** it (the setup reads it from the bot's recent updates). You can
+   also paste it directly, or get it from **@userinfobot**.
 3. **It saves and offers a test.** Credentials are written to
    `/etc/nas-notifier.env` (chmod 600); if real credentials already exist it
    asks before replacing them. Accept the test to confirm a message arrives.
+
+> **If your network blocks Telegram** (some ISPs intercept `t.me` and sometimes
+> `api.telegram.org`): the token step still works from the app, but auto-detect
+> and the notifier itself need `api.telegram.org`. Check it with
+> `curl -sS -o /dev/null -w '%{http_code}\n' https://api.telegram.org/` — if that
+> fails, route the NAS through Tailscale or a VPN (a public DNS resolver may help
+> when the block is DNS-only).
 
 `SSH_USER` and `TMUX_SESSION` in that file are optional (they default to the
 invoking user and `main`). To reconfigure or test later without rebooting:

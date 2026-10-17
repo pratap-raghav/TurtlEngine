@@ -3,10 +3,14 @@
 # setup-notifier.sh -- install AND configure the TurtlEngine Telegram notifier.
 #
 # Installs notify.py + the systemd unit, then walks you through entering your
-# Telegram credentials: it opens @BotFather and the getUpdates page in your
-# browser (falling back to printing the links), takes your token and chat id,
-# and offers a test send. If credentials already exist it asks before replacing
-# them. Idempotent and safe to re-run.
+# Telegram credentials: you create the bot in the Telegram app (@BotFather) and
+# paste the token; the chat id is auto-detected from the bot's recent messages
+# (with a manual fallback). A test send is offered. If credentials already exist
+# it asks before replacing them. Idempotent and safe to re-run.
+#
+# No web browser is opened: @BotFather lives in the Telegram app, and the chat
+# id is fetched from the API directly -- which also works where an ISP blocks
+# the t.me website.
 #
 # Usage: sudo ./scripts/setup-notifier.sh [username]
 #   username  account shown as SSH_USER in the message (default: $SUDO_USER).
@@ -41,19 +45,28 @@ ask_yes() { # ask_yes "question" <Y|N default> -> 0 on yes
     [[ "${ans}" =~ ^[Yy]([eE][sS])?$ ]]
 }
 
-open_url() { # best-effort: open in the user's browser, and always print it
-    local url="$1" uid
-    if [[ "${TARGET_USER}" != "root" ]] && command -v xdg-open >/dev/null 2>&1; then
-        uid="$(id -u "${TARGET_USER}" 2>/dev/null || true)"
-        if [[ -n "${uid}" ]]; then
-            sudo -u "${TARGET_USER}" \
-                DISPLAY="${DISPLAY:-:0}" \
-                DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${uid}/bus" \
-                xdg-open "${url}" >/dev/null 2>&1 &
-            disown 2>/dev/null || true
-        fi
-    fi
-    echo "      ${url}"
+fetch_chat_id() { # best-effort: read the chat id from the bot's recent updates
+    local tok="$1" json
+    # Tests set this to stay offline; also skip if we have no curl.
+    [[ -n "${NOTIFIER_SKIP_AUTODETECT:-}" ]] && return 0
+    command -v curl >/dev/null 2>&1 || return 0
+    # Any TLS/HTTP failure -- including an ISP block page with a mismatched cert
+    # -- yields empty output, so we fall back to manual entry cleanly.
+    json="$(curl -fsS --max-time 15 "https://api.telegram.org/bot${tok}/getUpdates" 2>/dev/null || true)"
+    [[ -z "${json}" ]] && return 0
+    python3 -c '
+import sys, json
+try:
+    data = json.loads(sys.argv[1])
+except Exception:
+    sys.exit(0)
+ids = []
+for u in data.get("result", []):
+    chat = ((u.get("message") or u.get("edited_message") or {}).get("chat") or {})
+    if "id" in chat:
+        ids.append(chat["id"])
+print(ids[-1] if ids else "")
+' "${json}" 2>/dev/null || true
 }
 
 env_value() { # env_value KEY -> current value in ENV_PATH (or empty)
@@ -123,10 +136,13 @@ if creds_configured; then
 fi
 
 echo ""
-echo "  Step 1 - get your bot token."
-echo "  Opening @BotFather. In Telegram: send /newbot, choose a name and"
-echo "  username, then copy the token it replies with."
-open_url "https://t.me/BotFather"
+echo "  Step 1 - create your bot and copy its token."
+echo "  In the Telegram APP (phone or desktop), start a chat with @BotFather:"
+echo "    - search for BotFather (the official one has a blue checkmark),"
+echo "    - send /newbot and follow the prompts (a name, then a username),"
+echo "    - copy the token it replies with (looks like 123456789:AA...)."
+echo "  (BotFather is a chat bot, so no web page is needed -- this also works"
+echo "   where an ISP blocks the t.me website.)"
 echo ""
 read -r -p "  Paste your bot token here (or press Enter to skip for now): " token || token=""
 if [[ -z "${token}" ]]; then
@@ -138,17 +154,30 @@ if [[ -z "${token}" ]]; then
 fi
 
 echo ""
-echo "  Step 2 - get your chat id."
-echo "  First send any message to your new bot in Telegram (so it may reply)."
-echo "  Then read the number from the page opening now -- look for"
-echo '  "chat":{"id":<number>} and copy just the <number>.'
-open_url "https://api.telegram.org/bot${token}/getUpdates"
+echo "  Step 2 - get your chat id (the number identifying your chat with the bot)."
+echo "  In the Telegram app, open your new bot and send it any message (e.g. 'hi')."
 echo ""
-read -r -p "  Paste your chat id here (or press Enter to skip for now): " chat_id || chat_id=""
+read -r -p "  Press Enter to auto-detect your chat id, or paste it directly: " chat_id || chat_id=""
+if [[ -z "${chat_id}" ]]; then
+    chat_id="$(fetch_chat_id "${token}")"
+    if [[ -n "${chat_id}" ]]; then
+        echo "  Detected chat id: ${chat_id}"
+        ask_yes "Use this chat id?" "Y" || chat_id=""
+    else
+        echo "  Couldn't auto-detect a chat id. Make sure you messaged the bot first."
+        echo "  If this machine can't reach Telegram at all (some ISPs block it), the"
+        echo "  notifier won't be able to send either -- see the README note on routing"
+        echo "  through Tailscale/VPN."
+    fi
+fi
+if [[ -z "${chat_id}" ]]; then
+    echo "  Tip: message @userinfobot in Telegram to see your numeric id."
+    read -r -p "  Enter your chat id manually (or press Enter to skip): " chat_id || chat_id=""
+fi
 if [[ -z "${chat_id}" ]]; then
     echo ""
-    echo "  No chat id entered -- your token was not saved. Re-run this when you"
-    echo "  have both values:  sudo ./scripts/setup-notifier.sh"
+    echo "  No chat id entered -- your token was not saved. Re-run when ready:"
+    echo "      sudo ./scripts/setup-notifier.sh"
     exit 0
 fi
 
