@@ -1,0 +1,39 @@
+name: Release
+
+# "CD" for a clone-and-run provisioning repo: when you push a version tag,
+# publish a GitHub Release with an auto-generated changelog and a source
+# tarball. Nothing happens on ordinary pushes -- you stay in control of when a
+# release is cut:
+#
+#   git tag -a v1.0.0 -m "TurtlEngine v1.0.0"
+#   git push origin v1.0.0
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write   # needed to create the Release
+
+jobs:
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history for release notes
+
+      - name: Build source tarball
+        run: |
+          git archive --format=tar.gz \
+            --prefix="turtlengine-${GITHUB_REF_NAME}/" \
+            -o "turtlengine-${GITHUB_REF_NAME}.tar.gz" HEAD
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            "turtlengine-${GITHUB_REF_NAME}.tar.gz" \
+            --title "TurtlEngine ${GITHUB_REF_NAME}" \
+            --generate-notes
