@@ -208,6 +208,11 @@ step_base() {
         fi
     done
     ln -sf "${OPT_DIR}/scripts/turtlengine" "${CLI_LINK}"
+    # If the command bot is already running, it loaded the old bot.py/notify.py
+    # at start; restart it so a re-run of the installer actually deploys the
+    # freshly staged code. try-restart is a no-op when the unit isn't running,
+    # so this never starts a bot the user hasn't set up.
+    systemctl try-restart turtlebot.service >/dev/null 2>&1 || true
 }
 
 # ---------------------------------------------------------------------------
