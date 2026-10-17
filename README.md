@@ -98,9 +98,10 @@ Setup is guided — during `install.sh`, or by running
    the Telegram app), send `/newbot`, follow the prompts, and paste the **token**
    into the terminal.
 2. **Get your chat id** — a number like `123456789` identifying *your* chat, not
-   the bot's `@name`. **Press START in your new bot** (so it's allowed to message
-   you), then press Enter and the setup **auto-detects** it from the Bot API. If
-   that can't reach Telegram, paste it manually — from **@userinfobot**, or via
+   the bot's `@name`. Right after you paste the token the setup **auto-detects**
+   it from the Bot API; just **press START in your new bot** first so there's a
+   message to read. If nothing comes back it guides you to press START and
+   retries; you can also type it manually — from **@userinfobot**, or via
    `curl -s "https://api.telegram.org/bot<TOKEN>/getUpdates" | jq '.result[].message.chat.id'`.
 3. **It saves and offers a test.** Credentials are written to
    `/etc/nas-notifier.env` (chmod 600); if real credentials already exist it
