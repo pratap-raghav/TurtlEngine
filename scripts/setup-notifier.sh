@@ -154,7 +154,8 @@ echo ""
 echo "  Step 1 - create your bot and copy its token."
 echo "  Start a chat with @BotFather and create your bot:"
 echo "    - send /newbot and follow the prompts (a name, then a username),"
-echo "    - copy the token it replies with (looks like 123456789:AA...)."
+echo "    - copy the token it replies with (looks like 123456789:AA...),"
+echo "    - then open your new bot and press START (so it can message you later)."
 echo "  Opening BotFather for you (telegram.me usually loads even where t.me is"
 echo "  blocked; you can also just open the Telegram app and search BotFather):"
 open_url "https://telegram.me/BotFather"
@@ -169,26 +170,27 @@ if [[ -z "${token}" ]]; then
 fi
 
 echo ""
-echo "  Step 2 - get your chat id: a NUMBER like 123456789 (your own chat --"
-echo "  NOT the bot's @name)."
-echo "  In the Telegram app, open your new bot and send it any message (e.g. 'hi')."
+echo "  Step 2 - let the bot see you, so we can read your chat id automatically."
+echo "  In Telegram, open your new bot and press START (or send it /start)."
+echo "  (A bot can only message you after you have messaged it at least once.)"
 echo ""
-read -r -p "  Press Enter to auto-detect your chat id, or paste it directly: " chat_id || chat_id=""
-if [[ -z "${chat_id}" ]]; then
-    chat_id="$(fetch_chat_id "${token}")"
-    if [[ -n "${chat_id}" ]]; then
-        echo "  Detected chat id: ${chat_id}"
-        ask_yes "Use this chat id?" "Y" || chat_id=""
-    else
-        echo "  Couldn't auto-detect a chat id. Make sure you messaged the bot first."
-        echo "  If this machine can't reach Telegram at all (some ISPs block it), the"
-        echo "  notifier won't be able to send either -- see the README note on routing"
-        echo "  through Tailscale/VPN."
-    fi
+read -r -p "  Press Enter here once you've pressed START in the bot: " _ || true
+
+echo "  Looking up your chat id from Telegram..."
+chat_id="$(fetch_chat_id "${token}")"
+if [[ -n "${chat_id}" ]]; then
+    echo "  Found it -- your chat id is ${chat_id}."
+    ask_yes "Use this chat id?" "Y" || chat_id=""
+else
+    echo "  Couldn't read it automatically. Either /start hasn't reached the bot"
+    echo "  yet, or this machine can't reach api.telegram.org (some ISPs block"
+    echo "  Telegram). You can look it up yourself instead:"
+    echo "    - message @userinfobot in Telegram -- it replies with your Id; or"
+    echo "    - run this (it prints the number):"
+    echo "        curl -s \"https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates\" | jq '.result[].message.chat.id'"
 fi
 if [[ -z "${chat_id}" ]]; then
-    echo "  Tip: message @userinfobot in Telegram to see your numeric id."
-    read -r -p "  Enter your chat id manually (or press Enter to skip): " chat_id || chat_id=""
+    read -r -p "  Enter your chat id manually (a number, or press Enter to skip): " chat_id || chat_id=""
 fi
 if [[ -z "${chat_id}" ]]; then
     echo ""
