@@ -132,20 +132,21 @@ echo "  Notifier installed and enabled to run on every boot."
 # --- 2. Configure credentials -----------------------------------------------
 # Check for existing credentials FIRST, so we only walk through the whole
 # bot-creation flow when there's actually something to set up.
+do_configure="yes"
 if creds_configured; then
     echo ""
     echo "  Telegram credentials are already saved in ${ENV_PATH}."
-    if ! ask_yes "Replace them with new credentials?" "N"; then
-        echo "  Keeping the existing credentials."
+    if ask_yes "Replace them with new credentials?" "N"; then
         echo ""
-        echo "  Done. Test anytime with:  sudo systemctl start nas-notifier.service"
-        exit 0
+        echo "  OK -- let's set up new credentials."
+    else
+        echo "  Keeping the existing credentials."
+        do_configure="no"
     fi
-    echo ""
-    echo "  OK -- let's set up new credentials."
 fi
 
-cat <<'EOF'
+if [[ "${do_configure}" == "yes" ]]; then
+    cat <<'EOF'
 
   The notifier sends you a Telegram message after each boot with a ready-to-paste
   command to reconnect. To finish, it needs two things from Telegram:
@@ -153,85 +154,93 @@ cat <<'EOF'
     2) your CHAT ID  -- detected automatically once you've pressed START
 EOF
 
-echo ""
-echo "  Step 1 - create your bot and copy its token."
-echo "  Start a chat with @BotFather and create your bot:"
-echo "    - send /newbot and follow the prompts (a name, then a username),"
-echo "    - copy the token it replies with (looks like 123456789:AA...),"
-echo "    - then open your new bot and press START (so it can message you later)."
-echo "  Opening BotFather for you (telegram.me usually loads even where t.me is"
-echo "  blocked; you can also just open the Telegram app and search BotFather):"
-open_url "https://telegram.me/BotFather"
-echo ""
-read -r -p "  Paste your bot token here (or press Enter to skip for now): " token || token=""
-if [[ -z "${token}" ]]; then
     echo ""
-    echo "  No token entered -- skipping for now. Add it later with:"
-    echo "      sudo nano ${ENV_PATH}"
-    echo "  then test:  sudo systemctl start nas-notifier.service"
-    exit 0
+    echo "  Step 1 - create your bot and copy its token."
+    echo "  Start a chat with @BotFather and create your bot:"
+    echo "    - send /newbot and follow the prompts (a name, then a username),"
+    echo "    - copy the token it replies with (looks like 123456789:AA...),"
+    echo "    - then open your new bot and press START (so it can message you later)."
+    echo "  Opening BotFather for you (telegram.me usually loads even where t.me is"
+    echo "  blocked; you can also just open the Telegram app and search BotFather):"
+    open_url "https://telegram.me/BotFather"
+    echo ""
+    read -r -p "  Paste your bot token here (or press Enter to skip for now): " token || token=""
+
+    if [[ -z "${token}" ]]; then
+        echo ""
+        echo "  No token entered -- skipping for now. Add it later by re-running:"
+        echo "      sudo ./scripts/setup-notifier.sh"
+    else
+        echo ""
+        echo "  Step 2 - reading your chat id from Telegram (no need to look it up)."
+        # The token alone is enough to call getUpdates; do it right away.
+        chat_id="$(fetch_chat_id "${token}")"
+        if [[ -n "${chat_id}" ]]; then
+            echo "  Found it -- your chat id is ${chat_id}."
+            ask_yes "Use this chat id?" "Y" || chat_id=""
+        fi
+        # Nothing came back: the bot has no message from you yet (or Telegram is
+        # unreachable). Guide to START and retry, allow a manual id, or skip. The
+        # loop ends on EOF, so it never blocks when run non-interactively.
+        while [[ -z "${chat_id}" ]]; do
+            echo ""
+            echo "  Nothing yet. In Telegram, open your new bot and press START (or send"
+            echo "  /start) -- a bot can only message you after you've messaged it first."
+            echo "  Then press Enter to retry. Or type your chat id (e.g. from"
+            echo "  @userinfobot), or 's' to skip. Manual lookup, if you prefer:"
+            echo "    curl -s \"https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates\" | jq '.result[].message.chat.id'"
+            read -r -p "  [Enter = retry / <number> / s = skip] " ans || ans="s"
+            case "${ans}" in
+                s|S) break ;;
+                "")
+                    chat_id="$(fetch_chat_id "${token}")"
+                    if [[ -n "${chat_id}" ]]; then
+                        echo "  Found it -- your chat id is ${chat_id}."
+                        ask_yes "Use this chat id?" "Y" || chat_id=""
+                    fi
+                    ;;
+                *) chat_id="${ans}" ;;
+            esac
+        done
+
+        if [[ -z "${chat_id}" ]]; then
+            echo ""
+            echo "  No chat id set -- your token was not saved. Re-run when ready:"
+            echo "      sudo ./scripts/setup-notifier.sh"
+        else
+            set_env_value TELEGRAM_BOT_TOKEN "${token}"
+            set_env_value TELEGRAM_CHAT_ID "${chat_id}"
+            chmod 600 "${ENV_PATH}"
+            echo ""
+            echo "  Saved to ${ENV_PATH} (readable only by root)."
+        fi
+    fi
 fi
 
-echo ""
-echo "  Step 2 - reading your chat id from Telegram (no need to look it up)."
-# The token alone is enough to call getUpdates; do it right away.
-chat_id="$(fetch_chat_id "${token}")"
-if [[ -n "${chat_id}" ]]; then
-    echo "  Found it -- your chat id is ${chat_id}."
-    ask_yes "Use this chat id?" "Y" || chat_id=""
-fi
-# Nothing came back: the bot has no message from you yet (or Telegram is
-# unreachable). Guide to START and retry, allow a manual id, or skip. The loop
-# ends on EOF, so it never blocks when run non-interactively.
-while [[ -z "${chat_id}" ]]; do
+# --- 3. Send the setup-complete message -------------------------------------
+# Runs whenever the notifier is configured -- whether we just set up new
+# credentials OR kept existing ones -- so finishing setup always confirms with a
+# message. Skipped only when there are genuinely no credentials to send with.
+if creds_configured; then
     echo ""
-    echo "  Nothing yet. In Telegram, open your new bot and press START (or send"
-    echo "  /start) -- a bot can only message you after you've messaged it first."
-    echo "  Then press Enter to retry. Or type your chat id (e.g. from"
-    echo "  @userinfobot), or 's' to skip. Manual lookup, if you prefer:"
-    echo "    curl -s \"https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates\" | jq '.result[].message.chat.id'"
-    read -r -p "  [Enter = retry / <number> / s = skip] " ans || ans="s"
-    case "${ans}" in
-        s|S) break ;;
-        "")
-            chat_id="$(fetch_chat_id "${token}")"
-            if [[ -n "${chat_id}" ]]; then
-                echo "  Found it -- your chat id is ${chat_id}."
-                ask_yes "Use this chat id?" "Y" || chat_id=""
-            fi
-            ;;
-        *) chat_id="${ans}" ;;
-    esac
-done
-if [[ -z "${chat_id}" ]]; then
+    echo "  Sending your setup-complete message to Telegram..."
+    if [[ -n "${NOTIFIER_SKIP_SEND:-}" ]]; then
+        echo "  (skipped)"
+    elif python3 "${INSTALL_DIR}/notify.py" --welcome; then
+        echo ""
+        echo "  Done! Check Telegram -- you'll see a welcome message, then a status"
+        echo "  card with your specs and tap-to-copy reconnect commands. 🐢"
+    else
+        echo ""
+        echo "  The message didn't go through. See what happened with:"
+        echo "      turtlengine logs"
+        echo "  (If this box can't reach api.telegram.org, see the README ISP note.)"
+    fi
     echo ""
-    echo "  No chat id set -- your token was not saved. Re-run when ready:"
-    echo "      sudo ./scripts/setup-notifier.sh"
-    exit 0
-fi
-
-# --- 3. Save and optionally test --------------------------------------------
-set_env_value TELEGRAM_BOT_TOKEN "${token}"
-set_env_value TELEGRAM_CHAT_ID "${chat_id}"
-chmod 600 "${ENV_PATH}"
-echo ""
-echo "  Saved to ${ENV_PATH} (readable only by root)."
-
-echo ""
-echo "  Sending your setup-complete message to Telegram..."
-if [[ -n "${NOTIFIER_SKIP_SEND:-}" ]]; then
-    echo "  (skipped)"
-elif python3 "${INSTALL_DIR}/notify.py" --welcome; then
-    echo ""
-    echo "  Done! Check Telegram -- you'll see a welcome message, then a status"
-    echo "  card with your specs and tap-to-copy reconnect commands. 🐢"
+    echo "  From now on that status card arrives automatically on every boot."
+    echo "  Send one anytime:  turtlengine notify      View logs:  turtlengine logs"
 else
     echo ""
-    echo "  Saved, but the message didn't go through. See what happened with:"
-    echo "      turtlengine logs"
-    echo "  (If this box can't reach api.telegram.org, see the README ISP note.)"
+    echo "  The notifier is installed but has no credentials yet. Add them anytime:"
+    echo "      sudo ./scripts/setup-notifier.sh"
 fi
-
-echo ""
-echo "  From now on that status card arrives automatically on every boot."
-echo "  Send one anytime:  turtlengine notify      View logs:  turtlengine logs"
