@@ -93,6 +93,9 @@ if grep -q "^\[${SHARENAME}\]" "${SMB_CONF}"; then
     echo "    share [${SHARENAME}] already in ${SMB_CONF}; leaving it untouched."
 else
     echo "==> Adding [${SHARENAME}] to ${SMB_CONF}..."
+    # Back up first so a rejected config can be restored exactly.
+    BACKUP="${SMB_CONF}.turtlengine.bak"
+    cp "${SMB_CONF}" "${BACKUP}"
     cat >> "${SMB_CONF}" <<EOF
 
 [${SHARENAME}]
@@ -103,6 +106,17 @@ else
    create mask = 0644
    directory mask = 0755
 EOF
+    # Validate the edited file; if testparm rejects it, restore the backup so
+    # smbd is never reloaded onto a broken smb.conf.
+    if command -v testparm >/dev/null 2>&1; then
+        if testparm -s "${SMB_CONF}" >/dev/null 2>&1; then
+            echo "    smb.conf validated (testparm)."
+        else
+            echo "Error: smb.conf failed validation; restoring previous config." >&2
+            cp "${BACKUP}" "${SMB_CONF}"
+            exit 1
+        fi
+    fi
 fi
 
 # --- SMB password (separate from the Linux password) ------------------------
@@ -123,8 +137,11 @@ if [[ "${owner}" != "${SHARE_USER}" ]]; then
     esac
 fi
 
-echo "==> Restarting and enabling smbd..."
-systemctl restart smbd
+echo "==> Reloading smbd..."
+# Reload applies the new share without dropping existing SMB connections. If
+# smbd isn't running yet (first share, right after installing samba), fall back
+# to a restart to start it.
+systemctl reload smbd 2>/dev/null || systemctl restart smbd
 systemctl enable smbd >/dev/null
 
 # --- Connect strings --------------------------------------------------------
