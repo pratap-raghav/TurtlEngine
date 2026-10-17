@@ -78,4 +78,13 @@ if [[ "${EUID}" -ne 0 ]]; then
     "${CLI}" notify >/dev/null 2>&1 && fail "notify should require root"
 fi
 
-echo "PASS: turtlengine CLI args, share list/remove, multi-share, cancel, logs/notify."
+# --- bot subcommand is wired up ---------------------------------------------
+grep -q 'bot ' <<<"${help_out}" || fail "usage missing 'bot'"
+"${CLI}" bot >/dev/null 2>&1 && fail "bot with no subcommand should exit non-zero"
+rc=$?; [[ "${rc}" -eq 2 ]] || fail "bot no-arg exit was ${rc}, expected 2"
+"${CLI}" bot bogus >/dev/null 2>&1 && fail "bot bogus should fail"
+if [[ "${EUID}" -ne 0 ]]; then
+    "${CLI}" bot restart >/dev/null 2>&1 && fail "bot restart should require root"
+fi
+
+echo "PASS: turtlengine CLI args, shares, logs/notify, bot subcommand."

@@ -183,7 +183,7 @@ step_base() {
     # your terms.
     install -d -m 0755 "${OPT_DIR}/scripts"
     local s
-    for s in turtlengine mount-drive.sh setup-samba.sh setup-notifier.sh; do
+    for s in turtlengine mount-drive.sh setup-samba.sh setup-notifier.sh setup-bot.sh; do
         if [[ -f "${REPO_ROOT}/scripts/${s}" ]]; then
             install -m 0755 "${REPO_ROOT}/scripts/${s}" "${OPT_DIR}/scripts/${s}"
         fi

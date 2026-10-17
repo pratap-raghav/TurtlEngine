@@ -32,7 +32,8 @@ Additional coverage for the later change waves:
 | --- | --- | --- |
 | Banner printed at install start, swap step removed, no auto share/format | `test_install.sh` | static, everywhere |
 | Banner printed by the notifier | `test_notify.py::TestBanner` | automated, everywhere |
-| CLI: invalid args, share list/remove, multiple independent shares, cancel | `test_turtlengine.sh` | automated (fixture smb.conf), everywhere |
+| CLI: invalid args, share list/remove, multiple independent shares, cancel, logs/notify, bot subcommand | `test_turtlengine.sh` | automated (fixture smb.conf), everywhere |
+| Command bot: auth gate (sender id + chat id), command parsing, unauthorized ignored, permission-aware handlers, /logs token redaction | `test_bot.py` | automated, everywhere |
 
 ### Item 7 — reboot recovery (manual integration check)
 

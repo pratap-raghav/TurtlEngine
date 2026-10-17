@@ -310,9 +310,22 @@ For the README/MOTD text file, use the same art without the Python wrapper:
   interactive `menu`. Discovery is read-only; mutations require root +
   confirmation. Installed to `/opt/turtlengine/scripts/` and symlinked to
   `/usr/local/bin/turtlengine`.
-- `tests/` — a reliability test suite (stdlib `unittest` for `notify.py`; Bash
-  tests with path overrides and a stubbed `systemctl`). Root-gated tests self-skip
-  (exit 77) when they cannot run safely.
+- `notifier/bot.py` + `scripts/setup-bot.sh` + `systemd/turtlebot.service` — an
+  optional **read-only Telegram command bot** (v1). A *separate* long-polling
+  service (not the oneshot notifier) running as the box owner (**non-root**,
+  never sudo). Every update is gated on **both** the sender's numeric user id and
+  the chat id; a fixed command set (`/help /status /ip /ssh_local /ssh_remote
+  /storage /sessions /logs /ping /notify`) with **no shell execution** and **no**
+  state-changing commands; permission-aware responses (distinct states for
+  denied / none / not-configured / unavailable); `/logs` scoped to the notifier
+  unit with the token redacted. Token in `/etc/turtlebot.env` (chmod 600, owned
+  by the owner). Setup requires the owner to confirm the authorized id before
+  enabling. Reuses `notify.py`'s helpers. Managed via `turtlengine bot ...`.
+  Inline keyboards + safe actions are deferred to v2. The boot notifier is
+  unchanged.
+- `tests/` — a reliability test suite (stdlib `unittest` for `notify.py` and
+  `bot.py`; Bash tests with path overrides and a stubbed `systemctl`). Root-gated
+  tests self-skip (exit 77) when they cannot run safely.
 - `docs/requirement/CONTEXT.md` — this document.
 
 **install.sh**

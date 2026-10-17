@@ -33,10 +33,13 @@ SSH command on every boot.
 | `scripts/install.sh` | Main provisioner: SSH, tmux, core tools, no-sleep, Tailscale (install only), MOTD, the `turtlengine` CLI, optional notifier |
 | `scripts/turtlengine` | Local CLI to manage status, storage, and shares after install |
 | `scripts/setup-notifier.sh` | Installs the Telegram boot-notifier (systemd service) |
+| `scripts/setup-bot.sh` | Installs the optional read-only Telegram command bot |
 | `scripts/mount-drive.sh` | Mounts a data drive by UUID (`nofail`); optional `--format` |
 | `scripts/setup-samba.sh` | Configures one SMB share for Windows / Android / iOS |
 | `notifier/notify.py` | The boot-notifier itself (Python stdlib only) |
+| `notifier/bot.py` | The read-only Telegram command bot (Python stdlib only) |
 | `systemd/nas-notifier.service` | Runs the notifier once on every boot |
+| `systemd/turtlebot.service` | Runs the command bot (long-polling, non-root) |
 | `motd/turtlengine.txt` | ASCII login banner |
 
 `install.sh` prints the TurtlEngine banner the moment it starts, provisions the
@@ -138,6 +141,42 @@ isn't connected you still get the LAN command. If connectivity never arrives it
 exits non-zero (visible in `journalctl`, no restart loop) and boot proceeds
 normally. systemd's `network-online.target` is only a hint; the script's own
 check is authoritative.
+
+## Telegram command bot (optional, read-only)
+
+Beyond boot messages, you can turn the bot into a **read-only remote control** —
+message it to check status, grab a fresh SSH command, or inspect storage from
+your phone. It's a **separate**, hardened service from the boot notifier.
+
+Install it after the notifier is configured:
+
+```bash
+sudo ./scripts/setup-bot.sh        # or: sudo turtlengine bot setup
+```
+
+It reuses your bot token, auto-detects your Telegram **user id**, and asks you to
+confirm it before enabling — the bot then answers **only that account**.
+
+| Command | What it returns |
+| --- | --- |
+| `/help` | the command list |
+| `/status` | full status card (specs + reconnect commands) |
+| `/ip` | current LAN and Tailscale addresses |
+| `/ssh_local` · `/ssh_remote` | a fresh SSH command for home / for anywhere |
+| `/storage` | mounted disks and free space |
+| `/sessions` | tmux sessions (and whether `main` exists) |
+| `/logs` | recent notifier logs (sanitized) |
+| `/ping` | confirm the bot is alive |
+| `/notify` | resend the status card |
+
+Manage it with `turtlengine bot {status|logs|restart}`.
+
+**Security.** It runs as your user (**non-root**, never `sudo`), accepts commands
+only from your allowlisted user id **and** chat id, and has **no** shell
+execution and **no** state-changing commands — it is read-only. If it can't read
+something (a tmux socket, the journal) it says so with a distinct state rather
+than failing or guessing. The token lives in `/etc/turtlebot.env` (chmod 600).
+Inline buttons and safe actions are a planned future addition.
 
 ## Managing the NAS: the `turtlengine` CLI
 
