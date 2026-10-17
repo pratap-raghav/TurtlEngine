@@ -53,7 +53,9 @@ SHARE_DIR="$(cd "${SHARE_DIR}" && pwd)"
 MOUNT_SRC=""
 MOUNT_TGT=""
 if command -v findmnt >/dev/null 2>&1; then
-    read -r MOUNT_SRC MOUNT_TGT < <(findmnt -n -o SOURCE,TARGET --target "${SHARE_DIR}" 2>/dev/null || true)
+    # Trailing `|| true`: `read` returns non-zero at EOF (findmnt printed
+    # nothing), which under `set -e` would otherwise abort the script.
+    read -r MOUNT_SRC MOUNT_TGT < <(findmnt -n -o SOURCE,TARGET --target "${SHARE_DIR}" 2>/dev/null || true) || true
 fi
 echo "Directory:  ${SHARE_DIR}"
 echo "Share name: ${SHARENAME}"

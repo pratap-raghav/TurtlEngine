@@ -88,7 +88,7 @@ cmd_status() {
         printf '  %-14s present (perms %s)\n' "env file" "$(stat -c '%a' /etc/nas-notifier.env 2>/dev/null)"
         echo "  (contents not shown -- it holds your bot token)"
     else
-        printf '  %-14s missing -- run: sudo turtlengine share ... or setup-notifier.sh\n' "env file"
+        printf '  %-14s missing -- run: sudo setup-notifier.sh to install the notifier\n' "env file"
     fi
 
     echo ""
