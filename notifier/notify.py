@@ -376,6 +376,24 @@ def build_message(info):
     return "\n".join(lines)
 
 
+def build_welcome_message(info):
+    """Celebratory 'setup complete' message (MarkdownV2, pure).
+
+    Sent once, right after setup, as the first of two messages -- the status
+    card built by build_message() follows it.
+    """
+    lines = [
+        "🎉 *TurtlEngine is live" + md2_escape("!") + "*",
+        "",
+        "`%s` " % md2_code_escape(info["hostname"])
+        + md2_escape("is now an always-on dev server you can reach from anywhere."),
+        md2_escape("Code, git and long jobs run here — your laptop and phone just attach."),
+        "",
+        md2_escape("Everything you need to jump in is in the next message") + " 👇",
+    ]
+    return "\n".join(lines)
+
+
 def send_message(token, chat_id, text):
     """POST the message to Telegram. Returns True on HTTP 200."""
     url = "%s/bot%s/sendMessage" % (TELEGRAM_API, token)
@@ -401,6 +419,9 @@ def send_message(token, chat_id, text):
 def main():
     print_banner()
 
+    # --welcome: first-setup run -> send a celebratory message, then the card.
+    welcome = "--welcome" in sys.argv[1:]
+
     config = load_env()
     token = config.get("TELEGRAM_BOT_TOKEN")
     chat_id = config.get("TELEGRAM_CHAT_ID")
@@ -419,9 +440,12 @@ def main():
     time.sleep(TAILSCALE_SETTLE_S)
 
     info = gather_info(config)
-    text = build_message(info)
 
-    if not send_message(token, chat_id, text):
+    if welcome:
+        if not send_message(token, chat_id, build_welcome_message(info)):
+            return 1
+
+    if not send_message(token, chat_id, build_message(info)):
         return 1
 
     print("Notification sent.")

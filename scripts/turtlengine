@@ -14,6 +14,8 @@
 #   sudo turtlengine share add       configure one Samba share (guided)
 #        turtlengine share list      list configured shares and their paths
 #   sudo turtlengine share remove [name]   remove a share config (keeps files)
+#        turtlengine logs [-f]       view the boot-notifier's logs (-f follows)
+#   sudo turtlengine notify          send a status card to Telegram now
 
 set -euo pipefail
 
@@ -87,6 +89,7 @@ cmd_status() {
     if [[ -f /etc/nas-notifier.env ]]; then
         printf '  %-14s present (perms %s)\n' "env file" "$(stat -c '%a' /etc/nas-notifier.env 2>/dev/null)"
         echo "  (contents not shown -- it holds your bot token)"
+        echo "  logs: turtlengine logs   |   send now: sudo turtlengine notify"
     else
         printf '  %-14s missing -- run: sudo setup-notifier.sh to install the notifier\n' "env file"
     fi
@@ -240,6 +243,36 @@ cmd_share_remove() {
     fi
 }
 
+# --- notifier ---------------------------------------------------------------
+cmd_logs() { # show the boot-notifier's logs (no need to remember journalctl)
+    local unit="nas-notifier.service"
+    if ! command -v journalctl >/dev/null 2>&1; then
+        echo "journalctl is not available on this system." >&2
+        exit 1
+    fi
+    case "${1:-}" in
+        -f|--follow)
+            echo "Following ${unit} -- Ctrl-C to stop."
+            journalctl -u "${unit}" -f
+            ;;
+        *)
+            journalctl -u "${unit}" -b --no-pager
+            ;;
+    esac
+}
+
+cmd_notify() { # send a status card to Telegram now (triggers the notifier)
+    need_root notify
+    echo "Sending a status card to Telegram now..."
+    if systemctl start nas-notifier.service; then
+        echo "Triggered. If the notifier is configured, the message is on its way."
+        echo "See what happened with:  turtlengine logs"
+    else
+        echo "The notifier reported a problem. See:  turtlengine logs" >&2
+        exit 1
+    fi
+}
+
 # --- interactive menu -------------------------------------------------------
 menu() {
     local choice
@@ -253,6 +286,8 @@ menu() {
   4) Share: add a Samba share
   5) Share: list shares
   6) Share: remove a share
+  7) Notifier: view logs
+  8) Notifier: send a status card now
   q) Quit
 MENU
         read -r -p "Choose: " choice || break
@@ -263,6 +298,8 @@ MENU
             4) cmd_share_add ;;
             5) cmd_share_list ;;
             6) cmd_share_remove ;;
+            7) cmd_logs ;;
+            8) cmd_notify ;;
             q|Q|"") break ;;
             *) echo "Unknown choice: ${choice}" ;;
         esac
@@ -284,6 +321,8 @@ Usage:
   sudo turtlengine share add            configure one Samba share (guided)
        turtlengine share list           list configured shares and their paths
   sudo turtlengine share remove [name]  remove a share config (keeps files)
+       turtlengine logs [-f]            view the boot-notifier's logs (-f follows)
+  sudo turtlengine notify               send a status card to Telegram now
 USAGE
 }
 
@@ -306,6 +345,8 @@ main() {
                 remove) cmd_share_remove "${3:-}" ;;
                 *) echo "Usage: turtlengine share {add|list|remove [name]}" >&2; exit 2 ;;
             esac ;;
+        logs) cmd_logs "${2:-}" ;;
+        notify) cmd_notify ;;
         -h|--help|help) usage ;;
         *) echo "Unknown command: ${cmd}" >&2; usage; exit 2 ;;
     esac

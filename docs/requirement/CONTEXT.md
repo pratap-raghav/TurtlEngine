@@ -305,9 +305,11 @@ For the README/MOTD text file, use the same art without the Python wrapper:
 
 **New components not in the original tree**
 - `scripts/turtlengine` — a local Bash CLI to manage the box after install:
-  `status`, `storage list|mount`, `share add|list|remove`, and an interactive
-  `menu`. Discovery is read-only; mutations require root + confirmation. Installed
-  to `/opt/turtlengine/scripts/` and symlinked to `/usr/local/bin/turtlengine`.
+  `status`, `storage list|mount`, `share add|list|remove`, `logs` and `notify`
+  (wrapping `journalctl`/`systemctl` so users never type them), and an
+  interactive `menu`. Discovery is read-only; mutations require root +
+  confirmation. Installed to `/opt/turtlengine/scripts/` and symlinked to
+  `/usr/local/bin/turtlengine`.
 - `tests/` — a reliability test suite (stdlib `unittest` for `notify.py`; Bash
   tests with path overrides and a stubbed `systemctl`). Root-gated tests self-skip
   (exit 77) when they cannot run safely.
@@ -335,6 +337,8 @@ For the README/MOTD text file, use the same art without the Python wrapper:
 - The boot message is a **status card**: host, uptime, CPU / RAM / disk / load /
   kernel (from `/proc` + `os.statvfs`), plus a **tap-to-copy** fenced code block
   with the reconnect command for each reachable address.
+- A `--welcome` mode sends a celebratory setup-complete message first, then the
+  card; `setup-notifier.sh` runs it automatically when configuration finishes.
 - The reconnect command is **`tmux new-session -A -s <session>`** (attach-or-
   create), not `tmux attach -t`, so the first connect after a cold boot works.
 - MarkdownV2 escaping is **split**: full escaping for prose, and a narrower

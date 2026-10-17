@@ -218,14 +218,20 @@ echo ""
 echo "  Saved to ${ENV_PATH} (readable only by root)."
 
 echo ""
-if ask_yes "Send a test notification now?" "Y"; then
-    echo "  Sending (this waits for connectivity, usually a few seconds)..."
-    if systemctl start nas-notifier.service; then
-        echo "  Done -- check your Telegram for the message."
-    else
-        echo "  The notifier ran but reported a problem."
-    fi
-    echo "  To see details:  journalctl -u nas-notifier.service -b"
+echo "  Sending your setup-complete message to Telegram..."
+if [[ -n "${NOTIFIER_SKIP_SEND:-}" ]]; then
+    echo "  (skipped)"
+elif python3 "${INSTALL_DIR}/notify.py" --welcome; then
+    echo ""
+    echo "  Done! Check Telegram -- you'll see a welcome message, then a status"
+    echo "  card with your specs and tap-to-copy reconnect commands. 🐢"
 else
-    echo "  You can test anytime with:  sudo systemctl start nas-notifier.service"
+    echo ""
+    echo "  Saved, but the message didn't go through. See what happened with:"
+    echo "      turtlengine logs"
+    echo "  (If this box can't reach api.telegram.org, see the README ISP note.)"
 fi
+
+echo ""
+echo "  From now on that status card arrives automatically on every boot."
+echo "  Send one anytime:  turtlengine notify      View logs:  turtlengine logs"
