@@ -14,6 +14,8 @@
 
 # TurtlEngine
 
+[![CI](https://github.com/pratap-raghav/TurtlEngine/actions/workflows/ci.yml/badge.svg)](https://github.com/pratap-raghav/TurtlEngine/actions/workflows/ci.yml)
+
 Provisioning scripts that turn a repurposed NAS running **Ubuntu 26.04.1 LTS
 Desktop** (BIOS/Legacy boot) into an always-on, headless development server.
 Clone the repo onto a fresh install, run one script, and the box is ready for
