@@ -8,9 +8,9 @@
 # (with a manual fallback). A test send is offered. If credentials already exist
 # it asks before replacing them. Idempotent and safe to re-run.
 #
-# No web browser is opened: @BotFather lives in the Telegram app, and the chat
-# id is fetched from the API directly -- which also works where an ISP blocks
-# the t.me website.
+# For bot creation it opens @BotFather via telegram.me (best effort) -- that
+# alias often loads where t.me is blocked, and the Telegram app always works.
+# The chat id is fetched from the Bot API directly.
 #
 # Usage: sudo ./scripts/setup-notifier.sh [username]
 #   username  account shown as SSH_USER in the message (default: $SUDO_USER).
@@ -43,6 +43,21 @@ ask_yes() { # ask_yes "question" <Y|N default> -> 0 on yes
     read -r -p "  ${prompt} ${hint} " ans || ans=""
     ans="${ans:-${def}}"
     [[ "${ans}" =~ ^[Yy]([eE][sS])?$ ]]
+}
+
+open_url() { # best-effort: open in the invoking user's browser; always print it
+    local url="$1" uid
+    echo "      ${url}"
+    if [[ "${TARGET_USER}" != "root" ]] && command -v xdg-open >/dev/null 2>&1; then
+        uid="$(id -u "${TARGET_USER}" 2>/dev/null || true)"
+        if [[ -n "${uid}" ]]; then
+            sudo -u "${TARGET_USER}" \
+                DISPLAY="${DISPLAY:-:0}" \
+                DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${uid}/bus" \
+                xdg-open "${url}" >/dev/null 2>&1 &
+            disown 2>/dev/null || true
+        fi
+    fi
 }
 
 fetch_chat_id() { # best-effort: read the chat id from the bot's recent updates
@@ -137,12 +152,12 @@ fi
 
 echo ""
 echo "  Step 1 - create your bot and copy its token."
-echo "  In the Telegram APP (phone or desktop), start a chat with @BotFather:"
-echo "    - search for BotFather (the official one has a blue checkmark),"
+echo "  Start a chat with @BotFather and create your bot:"
 echo "    - send /newbot and follow the prompts (a name, then a username),"
 echo "    - copy the token it replies with (looks like 123456789:AA...)."
-echo "  (BotFather is a chat bot, so no web page is needed -- this also works"
-echo "   where an ISP blocks the t.me website.)"
+echo "  Opening BotFather for you (telegram.me usually loads even where t.me is"
+echo "  blocked; you can also just open the Telegram app and search BotFather):"
+open_url "https://telegram.me/BotFather"
 echo ""
 read -r -p "  Paste your bot token here (or press Enter to skip for now): " token || token=""
 if [[ -z "${token}" ]]; then
@@ -154,7 +169,8 @@ if [[ -z "${token}" ]]; then
 fi
 
 echo ""
-echo "  Step 2 - get your chat id (the number identifying your chat with the bot)."
+echo "  Step 2 - get your chat id: a NUMBER like 123456789 (your own chat --"
+echo "  NOT the bot's @name)."
 echo "  In the Telegram app, open your new bot and send it any message (e.g. 'hi')."
 echo ""
 read -r -p "  Press Enter to auto-detect your chat id, or paste it directly: " chat_id || chat_id=""
