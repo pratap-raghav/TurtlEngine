@@ -15,7 +15,7 @@ jobs:
     name: ShellCheck + bash syntax
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Pin the exact ShellCheck used to validate locally, so CI findings match.
       - name: Install ShellCheck v0.10.0
@@ -48,8 +48,8 @@ jobs:
       matrix:
         python-version: ['3.11', '3.12', '3.13']
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -64,7 +64,7 @@ jobs:
     name: Full suite (root-gated tests included)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # Run as root so the setup-notifier and mount-drive tests actually execute
       # (they self-skip with exit 77 when they cannot run safely, never fail).
       - name: Run tests/run.sh as root
