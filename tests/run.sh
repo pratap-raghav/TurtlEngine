@@ -21,7 +21,7 @@ else
     fail=$((fail + 1))
 fi
 
-for t in test_setup_notifier.sh test_mount_drive.sh; do
+for t in test_install.sh test_turtlengine.sh test_setup_notifier.sh test_mount_drive.sh; do
     echo ""
     echo "=== ${t} ==="
     bash "${HERE}/${t}"

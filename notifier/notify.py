@@ -87,6 +87,11 @@ def wait_for_connectivity():
     HTTPError -- proves the full path resolved and connected, so that counts as
     online. Returns True once reachable, False after the timeout.
     """
+    print(
+        "Waiting for network connectivity (up to %ds, polling every %ds)..."
+        % (POLL_TIMEOUT_S, POLL_INTERVAL_S),
+        file=sys.stderr,
+    )
     deadline = time.monotonic() + POLL_TIMEOUT_S
     while time.monotonic() < deadline:
         request = urllib.request.Request(TELEGRAM_API, method="HEAD")
@@ -97,6 +102,8 @@ def wait_for_connectivity():
             # Server answered (e.g. 404/405) -- the network path works.
             return True
         except (urllib.error.URLError, socket.timeout, OSError):
+            # Interface up or Wi-Fi associated is NOT proof of connectivity;
+            # keep polling until a real request to Telegram succeeds.
             time.sleep(POLL_INTERVAL_S)
     return False
 

@@ -30,13 +30,19 @@ SSH command on every boot.
 
 | Component | What it does |
 | --- | --- |
-| `scripts/install.sh` | Main provisioner: SSH, tmux, core tools, no-sleep, 16 GB swap, Tailscale, MOTD, optional notifier |
+| `scripts/install.sh` | Main provisioner: SSH, tmux, core tools, no-sleep, Tailscale (install only), MOTD, the `turtlengine` CLI, optional notifier |
+| `scripts/turtlengine` | Local CLI to manage status, storage, and shares after install |
 | `scripts/setup-notifier.sh` | Installs the Telegram boot-notifier (systemd service) |
-| `scripts/mount-drive.sh` | Formats + auto-mounts a data drive by UUID (`nofail`) |
-| `scripts/setup-samba.sh` | SMB file share for Windows / Android / iOS |
+| `scripts/mount-drive.sh` | Mounts a data drive by UUID (`nofail`); optional `--format` |
+| `scripts/setup-samba.sh` | Configures one SMB share for Windows / Android / iOS |
 | `notifier/notify.py` | The boot-notifier itself (Python stdlib only) |
 | `systemd/nas-notifier.service` | Runs the notifier once on every boot |
 | `motd/turtlengine.txt` | ASCII login banner |
+
+`install.sh` prints the TurtlEngine banner the moment it starts, provisions the
+base system, and installs the `turtlengine` CLI — but it does **not** format
+disks, mount data drives, or create any network share. You choose storage and
+shares yourself afterwards with the CLI.
 
 ## Quick start
 
@@ -44,16 +50,21 @@ SSH command on every boot.
 git clone <this-repo> turtlengine
 cd turtlengine
 sudo ./scripts/install.sh      # idempotent; safe to re-run
-sudo tailscale up              # interactive browser login (manual)
 ```
 
-Then, from your laptop or phone, copy your SSH key to the box and start a
-session:
+`install.sh` finishes by printing exactly what it did automatically and what you
+still need to do by hand. The remaining manual steps are:
 
 ```bash
-ssh-copy-id <user>@<nas-ip>       # run on the client, not the NAS
-tmux new-session -A -s main       # on the NAS
+sudo tailscale up                 # 1. interactive login; enables remote access
+ssh-copy-id <user>@<nas-ip>       # 2. from the CLIENT (laptop/phone), not the NAS
+#    then verify key login works BEFORE disabling password auth (see Security notes)
+#    3-4. configure + test the Telegram notifier (see below)
+tmux new-session -A -s main       # 5. start your persistent session, on the NAS
 ```
+
+Nothing above is done for you — Tailscale is installed but not logged in, and the
+notifier is installed (if you opted in) but not configured.
 
 ### Reconnect from anywhere
 
@@ -96,27 +107,78 @@ from the phone, where it's one tap.
 The real `/etc/nas-notifier.env` is chmod 600 and gitignored — only
 `notifier/nas-notifier.env.example` is committed.
 
-## Other scripts
+On boot the notifier waits for **real** connectivity (wired or Wi-Fi) before
+sending — it polls `api.telegram.org` rather than trusting that a link is up,
+retries at a fixed interval up to a timeout, then gives Tailscale a moment to
+come up. LAN and Tailscale addresses are gathered independently, so if Tailscale
+isn't connected you still get the LAN command. If connectivity never arrives it
+exits non-zero (visible in `journalctl`, no restart loop) and boot proceeds
+normally. systemd's `network-online.target` is only a hint; the script's own
+check is authoritative.
+
+## Managing the NAS: the `turtlengine` CLI
+
+After install, `turtlengine` is on your `PATH`. Discovery is read-only; anything
+that changes the system needs root and asks for confirmation. Nothing is
+formatted, mounted, or shared unless you say so.
+
+```bash
+sudo turtlengine                 # interactive menu
+sudo turtlengine status          # services, network, storage, notifier
+     turtlengine storage list    # disks/partitions/filesystems/space (read-only)
+sudo turtlengine storage mount   # guided mount of a chosen filesystem
+sudo turtlengine share add       # configure one Samba share (guided)
+     turtlengine share list      # list configured shares and their paths
+sudo turtlengine share remove X  # remove share X's config (keeps the files)
+```
+
+`status` never prints secrets — it reports that `/etc/nas-notifier.env` exists
+and its permissions, not its contents.
+
+## Storage and sharing — you choose the paths
+
+TurtlEngine does not assume a single data disk. Each share is independent: you
+pick the directory, the Linux user, and the share name. For example:
+
+| Directory | Share name |
+| --- | --- |
+| `/mnt/nas-1tb/media` | `Storage1TB` |
+| `/mnt/nas-4tb/backups` | `Storage4TB` |
+| `/srv/shared` | `SharedFiles` |
+
+These are **examples, not defaults** — none of them are created automatically.
 
 ### Mount a data drive
 
 ```bash
-# Format (DESTRUCTIVE) + mount. You must re-type the device name to confirm.
-sudo ./scripts/mount-drive.sh /dev/sdb /mnt/data --format
-
 # Mount an already-formatted drive (adds a UUID entry to /etc/fstab, nofail).
-sudo ./scripts/mount-drive.sh /dev/sdb /mnt/data
+sudo ./scripts/mount-drive.sh /dev/sdb1 /mnt/nas-1tb
+
+# Format (DESTRUCTIVE) then mount. You must re-type the device name to confirm.
+sudo ./scripts/mount-drive.sh /dev/sdb /mnt/nas-1tb --format
 ```
 
-### SMB file share
+### Add an SMB share
 
 ```bash
-sudo ./scripts/setup-samba.sh <user> /mnt/data            # share name: turtlengine
-sudo ./scripts/setup-samba.sh <user> /mnt/data mystuff    # custom share name
+sudo ./scripts/setup-samba.sh <user> /mnt/nas-1tb/media Storage1TB
+sudo ./scripts/setup-samba.sh <user> /mnt/nas-4tb/backups Storage4TB   # another, independent
 ```
 
-Prints Windows / iOS / Android connect strings. The SMB password is separate
-from the Linux password.
+Or use the guided flow: `sudo turtlengine share add`. Before creating a share
+it validates the directory and user, reports which filesystem the path is on,
+**warns and re-confirms** if the path is on the root filesystem or a
+system-critical location, and never changes ownership recursively (it offers to
+set the top-level owner only, and only if you say yes). Re-running never
+duplicates an existing `[share]` block. Share name defaults to the directory's
+basename. Prints Windows / iOS / Android connect strings; the SMB password is
+separate from the Linux password.
+
+To remove a share later without deleting its files:
+
+```bash
+sudo turtlengine share remove Storage4TB    # backs up smb.conf, reloads smbd
+```
 
 ## Security notes
 
