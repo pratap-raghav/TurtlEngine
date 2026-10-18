@@ -119,6 +119,47 @@ class TestMessageBuilder(unittest.TestCase):
         for token in ("CPU:", "RAM:", "Disk /:", "Load:", "Kernel:"):
             self.assertNotIn(token, msg)
 
+    def test_gpu_rendered_with_name_and_vram(self):
+        msg = notify.build_message(base_info(gpus=[
+            {"name": "NVIDIA GeForce RTX 3090", "mem_total_mib": 24576,
+             "mem_used_mib": 1024, "util_pct": 0, "temp_c": 40}]))
+        self.assertIn("GPU:", msg)
+        self.assertIn("NVIDIA GeForce RTX 3090", msg)
+        self.assertIn("24 GiB", msg)
+
+    def test_gpu_omitted_when_none(self):
+        self.assertNotIn("GPU:", notify.build_message(base_info()))
+        self.assertNotIn("GPU:", notify.build_message(base_info(gpus=[])))
+
+
+class TestGetGpus(unittest.TestCase):
+    def test_parses_nvidia_smi_csv(self):
+        out = ("NVIDIA GeForce RTX 3090, 24576, 1536, 12, 45\n"
+               "NVIDIA GeForce RTX 3090, 24576, 0, 0, 38\n")
+        fake = mock.Mock(returncode=0, stdout=out)
+        with mock.patch.object(notify.subprocess, "run", return_value=fake):
+            gpus = notify._nvidia_gpus()
+        self.assertEqual(len(gpus), 2)
+        self.assertEqual(gpus[0]["name"], "NVIDIA GeForce RTX 3090")
+        self.assertEqual(gpus[0]["mem_total_mib"], 24576)
+        self.assertEqual(gpus[0]["util_pct"], 12)
+        self.assertEqual(gpus[0]["temp_c"], 45)
+
+    def test_nvidia_absent_returns_empty(self):
+        with mock.patch.object(notify.subprocess, "run", side_effect=FileNotFoundError):
+            self.assertEqual(notify._nvidia_gpus(), [])
+
+    def test_falls_back_to_lspci_name_only(self):
+        lspci = ("00:02.0 VGA compatible controller: Intel UHD Graphics 770\n"
+                 "01:00.0 Audio device: NVIDIA Corporation\n")
+        fake = mock.Mock(returncode=0, stdout=lspci)
+        with mock.patch.object(notify, "_nvidia_gpus", return_value=[]), \
+             mock.patch.object(notify.subprocess, "run", return_value=fake):
+            gpus = notify.get_gpus()
+        self.assertEqual(len(gpus), 1)
+        self.assertEqual(gpus[0]["name"], "Intel UHD Graphics 770")
+        self.assertIsNone(gpus[0]["mem_total_mib"])
+
     def test_welcome_message_is_celebratory_and_names_host(self):
         msg = notify.build_welcome_message(base_info(hostname="Ghost-Screen"))
         self.assertIn("TurtlEngine is live", msg)

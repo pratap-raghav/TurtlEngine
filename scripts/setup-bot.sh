@@ -168,12 +168,22 @@ fi
 cat <<EOF
 
 The command bot is live. From Telegram, send your bot:
-  /help      list commands
-  /status    full status card
-  /ip        current LAN + Tailscale addresses
+  /help          list commands
+  /status        full status card
+  /ip            current LAN + Tailscale addresses
+  /drives        just the shared-drive names
+  /shares        shared drives + connect commands for every OS
+  /add_share     how to add a new shared drive
+  /gpu /top /temp  GPU, busiest processes, temperatures
+  /services /net   listening services + their URLs, Tailscale devices online
+  /new_terminal  a copy-paste command to open another terminal (or add a name)
   /ssh_local /ssh_remote /storage /sessions /logs /ping
 
-It answers only your account (id ${AUTH_ID}) in chat ${CHAT_ID}, is read-only,
-and never runs shell commands. Manage it with:
+Type "/" in the chat to pick any command from the menu (it's registered
+automatically when the bot starts).
+
+It answers only your account (id ${AUTH_ID}) in chat ${CHAT_ID}. It is read-only:
+it only reports status or hands you a command to run yourself, and never changes
+anything on the box. Manage it with:
   turtlengine bot status | logs | restart
 EOF

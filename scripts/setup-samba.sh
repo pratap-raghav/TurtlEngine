@@ -57,10 +57,12 @@ if command -v findmnt >/dev/null 2>&1; then
     # nothing), which under `set -e` would otherwise abort the script.
     read -r MOUNT_SRC MOUNT_TGT < <(findmnt -n -o SOURCE,TARGET --target "${SHARE_DIR}" 2>/dev/null || true) || true
 fi
-echo "Directory:  ${SHARE_DIR}"
-echo "Share name: ${SHARENAME}"
-echo "User:       ${SHARE_USER}"
-[[ -n "${MOUNT_TGT}" ]] && echo "Filesystem: ${MOUNT_SRC} mounted at ${MOUNT_TGT}"
+echo "About to share a folder on your network so other devices can open it."
+echo ""
+echo "  Folder being shared : ${SHARE_DIR}"
+echo "  Name on the network : ${SHARENAME}   (what it shows up as on your phone/PC)"
+echo "  Who may open it      : ${SHARE_USER}   (your Linux user; needs a password, set below)"
+[[ -n "${MOUNT_TGT}" ]] && echo "  Lives on disk        : ${MOUNT_SRC}, mounted at ${MOUNT_TGT}"
 echo ""
 
 # Warn when the path is on the root filesystem or a system-critical location.
@@ -74,25 +76,31 @@ if [[ "${MOUNT_TGT}" == "/" ]]; then
     critical="${critical:+${critical}; }on the root filesystem (/)"
 fi
 if [[ -n "${critical}" ]]; then
-    echo "WARNING: ${SHARE_DIR} is ${critical}." >&2
-    echo "         Sharing it over SMB may expose sensitive files. Prefer a" >&2
-    echo "         directory on a dedicated data mount (e.g. /mnt/nas-1tb/...)." >&2
-    read -r -p "Type the share directory again to confirm you really mean it: " c || c=""
+    echo "CAUTION: ${SHARE_DIR} is a ${critical}." >&2
+    echo "         Sharing it could expose private system files to anyone on" >&2
+    echo "         the network. It's safer to share a folder on a data drive," >&2
+    echo "         e.g. /mnt/nas-1tb/media." >&2
+    read -r -p "To go ahead anyway, type the folder path again: " c || c=""
     if [[ "${c}" != "${SHARE_DIR}" ]]; then
-        echo "Confirmation did not match; aborting. Nothing was changed." >&2
+        echo "That didn't match, so I stopped. Nothing was changed." >&2
         exit 1
     fi
 fi
 
-echo "==> Installing samba..."
+echo "Step 1 of 4 — Installing the file-sharing service (Samba)."
+echo "  This is what lets Windows, Mac, phones and other Linux machines"
+echo "  see the folder over the network."
 export DEBIAN_FRONTEND=noninteractive
 apt-get install -y samba
 
 # --- Append the share block if it isn't already there -----------------------
+echo ""
+echo "Step 2 of 4 — Registering the share with Samba."
 if grep -q "^\[${SHARENAME}\]" "${SMB_CONF}"; then
-    echo "    share [${SHARENAME}] already in ${SMB_CONF}; leaving it untouched."
+    echo "  A share named \"${SHARENAME}\" already exists, so I left it untouched."
 else
-    echo "==> Adding [${SHARENAME}] to ${SMB_CONF}..."
+    echo "  Adding \"${SHARENAME}\" to Samba's config. (Your old config is backed"
+    echo "  up first, so this can always be undone.)"
     # Back up first so a rejected config can be restored exactly.
     BACKUP="${SMB_CONF}.turtlengine.bak"
     cp "${SMB_CONF}" "${BACKUP}"
@@ -110,9 +118,10 @@ EOF
     # smbd is never reloaded onto a broken smb.conf.
     if command -v testparm >/dev/null 2>&1; then
         if testparm -s "${SMB_CONF}" >/dev/null 2>&1; then
-            echo "    smb.conf validated (testparm)."
+            echo "  Config checked — all good."
         else
-            echo "Error: smb.conf failed validation; restoring previous config." >&2
+            echo "  The new config didn't check out, so I put your old one back." >&2
+            echo "  Nothing was changed. Please re-run and try again." >&2
             cp "${BACKUP}" "${SMB_CONF}"
             exit 1
         fi
@@ -120,7 +129,13 @@ EOF
 fi
 
 # --- SMB password (separate from the Linux password) ------------------------
-echo "==> Set the SMB password for ${SHARE_USER} (separate from the Linux password):"
+echo ""
+echo "Step 3 of 4 — Set the password for opening the share."
+echo "  This password is used ONLY to open the share from other devices."
+echo "  It is separate from your normal Linux login — it can be the same or"
+echo "  different, your choice. You'll enter it on your phone/PC the first time"
+echo "  you connect as \"${SHARE_USER}\". (Typing it now shows nothing on screen.)"
+echo ""
 smbpasswd -a "${SHARE_USER}"
 smbpasswd -e "${SHARE_USER}"
 
@@ -130,14 +145,20 @@ smbpasswd -e "${SHARE_USER}"
 # an explicit yes.
 owner="$(stat -c '%U' "${SHARE_DIR}")"
 if [[ "${owner}" != "${SHARE_USER}" ]]; then
-    read -r -p "Set owner of ${SHARE_DIR} (top level only) to ${SHARE_USER}? [y/N] " a || a=""
+    echo ""
+    echo "Right now the folder is owned by \"${owner}\", not \"${SHARE_USER}\"."
+    echo "If \"${SHARE_USER}\" later can't SAVE files into the share, making them the"
+    echo "owner usually fixes it. (Only the top folder changes — files inside keep"
+    echo "their current owners.)"
+    read -r -p "Make \"${SHARE_USER}\" the owner of this folder now? [y/N] " a || a=""
     case "${a}" in
-        [yY]|[yY][eE][sS]) chown "${SHARE_USER}" "${SHARE_DIR}"; echo "    owner set (non-recursive)." ;;
-        *) echo "    left ownership as-is (${owner}). Adjust manually if writes fail." ;;
+        [yY]|[yY][eE][sS]) chown "${SHARE_USER}" "${SHARE_DIR}"; echo "  Done — \"${SHARE_USER}\" now owns the folder." ;;
+        *) echo "  Left as-is. If saving files fails later, re-run this and answer yes." ;;
     esac
 fi
 
-echo "==> Reloading smbd..."
+echo ""
+echo "Step 4 of 4 — Turning the share on."
 # Reload applies the new share without dropping existing SMB connections. If
 # smbd isn't running yet (first share, right after installing samba), fall back
 # to a restart to start it.
@@ -150,13 +171,24 @@ LAN_IP="${LAN_IP:-<nas-ip>}"
 
 cat <<EOF
 
-SMB share [${SHARENAME}] is live. Connect with:
+✅ Done! The folder is now shared as "${SHARENAME}".
 
-  Windows (File Explorer address bar):
+Open it from any device using the matching line below — copy it exactly.
+When asked, sign in as "${SHARE_USER}" with the share password you just set.
+
+  Windows (paste into the File Explorer address bar):
       \\\\${LAN_IP}\\${SHARENAME}
 
+  macOS (Finder -> Go -> Connect to Server, Cmd-K):
+      smb://${LAN_IP}/${SHARENAME}
+
+  Linux (Files location bar, Ctrl-L):
+      smb://${LAN_IP}/${SHARENAME}
+  Linux (mount from a terminal):
+      sudo mount -t cifs //${LAN_IP}/${SHARENAME} /mnt/${SHARENAME} -o username=${SHARE_USER},uid=\$(id -u),gid=\$(id -g)
+
   iOS (Files app -> Connect to Server):
-      smb://${LAN_IP}
+      smb://${LAN_IP}/${SHARENAME}
 
   Android (e.g. CX File Explorer / Solid Explorer -> add SMB):
       Host: ${LAN_IP}
@@ -164,6 +196,9 @@ SMB share [${SHARENAME}] is live. Connect with:
       User: ${SHARE_USER}
 
 Use the SMB password you just set (not the Linux one).
+
+Tip: from Telegram, send your bot /shares anytime to get these connect
+commands (every OS, tap-to-copy) without looking them up again.
 
 To add ANOTHER independent share later, run this again with a different
 directory and name, e.g.:
