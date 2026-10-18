@@ -11,7 +11,9 @@ Security model (deliberately small and auditable):
   - An update is processed only if BOTH the sender's numeric user id AND the
     chat id match the configured allowlist. Everything else is ignored silently.
   - No shell is ever built from message text. Commands are a fixed dispatch
-    table; there is no /exec and no dynamic service/command name.
+    table; there is no /exec and no dynamic service/command name. Every command
+    only reads state or hands the user a command to run themselves -- the bot
+    never changes anything on the box.
   - Where the bot cannot read something (a tmux socket, the journal), it says so
     with a distinct state instead of failing the whole reply or pretending.
   - It never prints the token/env/secrets; /logs is scoped to the notifier unit
@@ -36,9 +38,43 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import notify  # noqa: E402
 
 BOT_ENV_PATH = "/etc/turtlebot.env"
+# Overridable so tests can point at a throwaway smb.conf.
+SMB_CONF = os.environ.get("SMB_CONF", "/etc/samba/smb.conf")
 POLL_TIMEOUT_S = 50          # Telegram long-poll hold time
 ERROR_BACKOFF_S = 5
 MAX_LOG_CHARS = 3500         # keep /logs within Telegram's message limit
+# tmux session-name characters we accept from /new_terminal. tmux forbids '.'
+# and ':'; we keep an even tighter token so the name is also shell-copy-safe.
+SAFE_SESSION_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+MAX_SESSION_NAME = 32
+
+# Single source of truth for the command list. /help renders it, and it's
+# registered with Telegram (setMyCommands) so typing "/" pops up the menu with
+# descriptions -- just like BotFather. Names must be [a-z0-9_], 1-32 chars;
+# descriptions 1-256. Aliases (start, addshare, ...) are intentionally omitted
+# here so they don't clutter the menu.
+COMMAND_HELP = [
+    ("status", "full status card"),
+    ("ip", "current LAN and Tailscale addresses"),
+    ("ssh_local", "SSH command for home / LAN"),
+    ("ssh_remote", "SSH command via Tailscale"),
+    ("drives", "just the shared-drive names"),
+    ("shares", "shared drives + connect commands (all OSes)"),
+    ("add_share", "how to add a new shared drive"),
+    ("storage", "disks and free space"),
+    ("gpu", "GPU load, VRAM and temperature"),
+    ("top", "processes using the most CPU"),
+    ("temp", "CPU and GPU temperatures"),
+    ("services", "listening services and their URLs"),
+    ("net", "Tailscale devices online"),
+    ("sessions", "tmux sessions"),
+    ("new_terminal", "command to open another terminal (add a name)"),
+    ("logs", "recent notifier logs"),
+    ("ping", "check the bot is alive"),
+    ("notify", "resend the status card"),
+    ("help", "this list"),
+]
 
 REAL_FS = {
     "ext2", "ext3", "ext4", "xfs", "btrfs", "f2fs", "zfs",
@@ -57,6 +93,29 @@ def get_updates(token, offset=None, timeout=POLL_TIMEOUT_S):
     with urllib.request.urlopen(url, timeout=timeout + 10) as response:
         data = json.load(response)
     return data.get("result", []) if data.get("ok") else []
+
+
+def set_my_commands(token, commands=COMMAND_HELP):
+    """Register the command list so Telegram shows it when you type "/".
+
+    This is what gives the BotFather-style autocomplete popup. It's a one-off
+    call at startup and purely cosmetic (it configures the bot's menu, not the
+    box), so a failure here must never stop the bot from serving commands.
+    """
+    payload = json.dumps({
+        "commands": [{"command": c, "description": d} for c, d in commands],
+    }).encode("utf-8")
+    url = "%s/bot%s/setMyCommands" % (notify.TELEGRAM_API, token)
+    request = urllib.request.Request(
+        url, data=payload, method="POST",
+        headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            return response.status == 200
+    except (urllib.error.URLError, OSError) as exc:
+        print("setMyCommands failed (the '/' menu won't update): %s" % exc,
+              file=sys.stderr)
+        return False
 
 
 # --- authorisation (the security gate) --------------------------------------
@@ -154,6 +213,158 @@ def get_logs(token=None, lines=15):
     return out
 
 
+def get_shares(path=SMB_CONF):
+    """Parse smb.conf into a list of {name, path, users} for real shares.
+
+    Section headers are '[name]'; we skip the special [global], [printers] and
+    [print$] blocks and any section with no 'path =' (not an actual share).
+    Keys are case-insensitive. 'valid users' may list several accounts/@groups;
+    we keep the raw value and let the formatter show the first token as a hint.
+    Returns None only if the config can't be read at all (vs. [] for none).
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            lines = handle.readlines()
+    except OSError:
+        return None
+    skip = {"global", "printers", "print$"}
+    shares = []
+    cur = None
+    for raw in lines:
+        line = raw.strip()
+        if not line or line[0] in "#;":
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            name = line[1:-1].strip()
+            cur = None if name.lower() in skip else {
+                "name": name, "path": "", "users": ""}
+            if cur is not None:
+                shares.append(cur)
+            continue
+        if cur is None or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip().lower()
+        value = value.strip()
+        if key == "path":
+            cur["path"] = value
+        elif key in ("valid users", "username", "users") and not cur["users"]:
+            cur["users"] = value
+    return [s for s in shares if s["path"]]
+
+
+def get_top(n=6):
+    """Top `n` processes by CPU as (command, cpu%, mem%). None if unreadable."""
+    try:
+        result = subprocess.run(
+            ["ps", "-eo", "pcpu,pmem,comm", "--sort=-pcpu", "--no-headers"],
+            capture_output=True, text=True, timeout=10)
+    except (FileNotFoundError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    rows = []
+    for line in result.stdout.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) == 3:
+            rows.append((parts[2], parts[0], parts[1]))   # comm, cpu, mem
+        if len(rows) >= n:
+            break
+    return rows
+
+
+def get_temps():
+    """Return [(label, celsius)] from thermal zones and any NVIDIA GPU."""
+    temps = []
+    base = "/sys/class/thermal"
+    try:
+        zones = sorted(z for z in os.listdir(base) if z.startswith("thermal_zone"))
+    except OSError:
+        zones = []
+    for zone in zones:
+        try:
+            with open(os.path.join(base, zone, "type"), encoding="utf-8") as handle:
+                label = handle.read().strip()
+            with open(os.path.join(base, zone, "temp"), encoding="utf-8") as handle:
+                milli = int(handle.read().strip())
+        except (OSError, ValueError):
+            continue
+        temps.append((label, milli / 1000.0))
+    for gpu in notify.get_gpus():
+        if gpu.get("temp_c") is not None:
+            temps.append((gpu["name"], float(gpu["temp_c"])))
+    return temps
+
+
+def get_tailscale_peers():
+    """Return (state, [(name, ip, online)]). state: ok | not_installed | down."""
+    try:
+        result = subprocess.run(["tailscale", "status", "--json"],
+                                 capture_output=True, text=True, timeout=10)
+    except FileNotFoundError:
+        return "not_installed", []
+    except subprocess.SubprocessError:
+        return "down", []
+    if result.returncode != 0:
+        return "down", []
+    try:
+        data = json.loads(result.stdout)
+    except ValueError:
+        return "down", []
+    peers = []
+    for peer in (data.get("Peer") or {}).values():
+        name = peer.get("HostName") or (peer.get("DNSName") or "").split(".")[0]
+        ips = peer.get("TailscaleIPs") or []
+        peers.append((name or "?", ips[0] if ips else "", bool(peer.get("Online"))))
+    return "ok", peers
+
+
+def get_listening_ports():
+    """Return sorted [(port, reachable)] for TCP listeners. None if unreadable.
+
+    `reachable` is True when the port is bound to something other than
+    loopback, i.e. other devices on the network/tailnet can reach it. We query
+    with `ss -tln` (no -p), so no root and no process names are needed.
+    """
+    try:
+        result = subprocess.run(["ss", "-H", "-tln"],
+                                 capture_output=True, text=True, timeout=10)
+    except (FileNotFoundError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    loopback = {"127.0.0.1", "[::1]", "::1"}
+    reachable = {}
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+        local = parts[3]
+        addr, _, port = local.rpartition(":")
+        if not port.isdigit():
+            continue
+        is_local = addr in loopback
+        port = int(port)
+        reachable[port] = reachable.get(port, False) or (not is_local)
+    return sorted(reachable.items())
+
+
+def sanitize_session_name(raw):
+    """Keep only safe characters from a requested session name (may be empty)."""
+    return "".join(c for c in (raw or "").strip()
+                   if c in SAFE_SESSION_CHARS)[:MAX_SESSION_NAME]
+
+
+def next_session_name(existing, base="work"):
+    """First free 'work', 'work2', 'work3', ... not already in `existing`."""
+    if base not in existing:
+        return base
+    n = 2
+    while "%s%d" % (base, n) in existing:
+        n += 1
+    return "%s%d" % (base, n)
+
+
 # --- command handlers (return MarkdownV2 text; Telegram-agnostic) -----------
 def _ssh_command(user, ip, session):
     return "ssh %s@%s -t tmux new-session -A -s %s" % (user, ip, session)
@@ -173,36 +384,26 @@ def _fenced(text):
     return "```\n%s\n```" % notify.md2_code_escape(text)
 
 
-def cmd_help(config):
-    rows = [
-        ("/status", "full status card"),
-        ("/ip", "current LAN and Tailscale addresses"),
-        ("/ssh_local", "SSH command for home / LAN"),
-        ("/ssh_remote", "SSH command via Tailscale"),
-        ("/storage", "disks and free space"),
-        ("/sessions", "tmux sessions"),
-        ("/logs", "recent notifier logs"),
-        ("/ping", "check the bot is alive"),
-        ("/notify", "resend the status card"),
-        ("/help", "this list"),
-    ]
+def cmd_help(config, args=""):
     lines = ["🐢 *TurtlEngine bot* " + notify.md2_escape("(read-only)"), ""]
-    for name, desc in rows:
-        lines.append("`%s` — %s" % (name, notify.md2_escape(desc)))
+    for name, desc in COMMAND_HELP:
+        lines.append("`/%s` — %s" % (name, notify.md2_escape(desc)))
+    lines.append("")
+    lines.append(notify.md2_escape("Tip: type \"/\" to pick a command from the menu."))
     return "\n".join(lines)
 
 
-def cmd_ping(config):
+def cmd_ping(config, args=""):
     host = socket.gethostname()
     up = notify.get_uptime() or "?"
     return "🐢 " + notify.md2_escape("pong — %s is up (uptime %s)" % (host, up))
 
 
-def cmd_status(config):
+def cmd_status(config, args=""):
     return notify.build_message(notify.gather_info(config))
 
 
-def cmd_ip(config):
+def cmd_ip(config, args=""):
     lan = notify.get_lan_ip()
     ts = notify.get_tailscale_ip()
     lines = ["📡 *Addresses*", ""]
@@ -213,7 +414,7 @@ def cmd_ip(config):
     return "\n".join(lines)
 
 
-def cmd_ssh_local(config):
+def cmd_ssh_local(config, args=""):
     user = config.get("SSH_USER") or "user"
     session = config.get("TMUX_SESSION") or "main"
     lan = notify.get_lan_ip()
@@ -223,7 +424,7 @@ def cmd_ssh_local(config):
     return "🏠 *Home / LAN*\n" + _copy(_ssh_command(user, lan, session))
 
 
-def cmd_ssh_remote(config):
+def cmd_ssh_remote(config, args=""):
     user = config.get("SSH_USER") or "user"
     session = config.get("TMUX_SESSION") or "main"
     ts = notify.get_tailscale_ip()
@@ -234,7 +435,103 @@ def cmd_ssh_remote(config):
     return "🌍 *Anywhere / Tailscale*\n" + _copy(_ssh_command(user, ts, session))
 
 
-def cmd_storage(config):
+def _share_block(share, ip, default_user):
+    """MarkdownV2 lines for one share: a header plus one copyable line per OS.
+
+    Each command is an inline code span so a tap copies it on mobile. The
+    `smb://` URL is identical on macOS, Linux (Files) and iOS, but we label each
+    OS on its own line so there is nothing to figure out -- copy the one for the
+    device in your hand.
+    """
+    name = share["name"]
+    user = (share.get("users") or "").split()[0] if share.get("users") else ""
+    user = user.lstrip("@") or default_user
+    smb_url = "smb://%s/%s" % (ip, name)
+    mount = ("sudo mount -t cifs //%s/%s /mnt/%s "
+             "-o username=%s,uid=$(id -u),gid=$(id -g)" % (ip, name, name, user))
+    header = "📁 *%s* %s" % (
+        notify.md2_escape(name),
+        "\\(%s\\)" % notify.md2_escape(share["path"]) if share.get("path") else "")
+    lines = [header.rstrip()]
+    lines.append("🪟 Windows: " + _copy("\\\\%s\\%s" % (ip, name)))
+    lines.append("🍎 macOS: " + _copy(smb_url))
+    lines.append("🐧 Linux \\(Files\\): " + _copy(smb_url))
+    lines.append("🐧 Linux \\(mount\\): " + _copy(mount))
+    lines.append("🤖 Android \\(CX/Solid\\): host "
+                 + _copy(ip) + notify.md2_escape(" · share ") + _copy(name)
+                 + notify.md2_escape(" · user ") + _copy(user))
+    lines.append("📱 iOS: " + _copy(smb_url))
+    return "\n".join(lines)
+
+
+def cmd_shares(config, args=""):
+    shares = get_shares()
+    if shares is None:
+        return notify.md2_escape(
+            "🗂 Can't read the Samba config (%s)." % SMB_CONF)
+    if not shares:
+        return (notify.md2_escape("🗂 No shared drives yet. Add one on the NAS with:")
+                + "\n" + _copy("sudo turtlengine share add"))
+    lan = notify.get_lan_ip()
+    ts = notify.get_tailscale_ip()
+    ip = lan or ts
+    if ip is None:
+        return notify.md2_escape(
+            "🗂 Found shares, but couldn't determine this NAS's address.")
+    default_user = config.get("SSH_USER") or "user"
+    blocks = [_share_block(s, ip, default_user) for s in shares]
+    out = ["🗂 *Shared drives* " + notify.md2_escape("(%d)" % len(shares)), ""]
+    out.append("\n\n".join(blocks))
+    out.append("")
+    out.append(notify.md2_escape(
+        "Sign in with your SMB username + the SMB password you set "
+        "(not the Linux password)."))
+    if ts and lan:
+        out.append(notify.md2_escape(
+            "🌍 Away from home? Swap the IP for your Tailscale IP: ") + _copy(ts))
+    return "\n".join(out)
+
+
+def cmd_drives(config, args=""):
+    """Just the share names -- a quick glance, without the per-OS commands."""
+    shares = get_shares()
+    if shares is None:
+        return notify.md2_escape(
+            "🗂 Can't read the Samba config (%s)." % SMB_CONF)
+    if not shares:
+        return (notify.md2_escape("🗂 No shared drives yet. Send /add_share to set one up."))
+    lines = ["🗂 *Shared drives* " + notify.md2_escape("(%d)" % len(shares)), ""]
+    for share in shares:
+        lines.append("• `%s`" % notify.md2_code_escape(share["name"]))
+    lines.append("")
+    lines.append(notify.md2_escape(
+        "Send /shares for the connect commands, or /add_share to add one."))
+    return "\n".join(lines)
+
+
+def cmd_add_share(config, args=""):
+    """How to add a new shared drive. Read-only: it explains, it doesn't act."""
+    return "\n".join([
+        "➕ *Add a shared drive*",
+        "",
+        notify.md2_escape(
+            "Adding a drive runs on the NAS itself and needs admin rights, so "
+            "this read-only bot can't do it for you — but here's exactly how:"),
+        "",
+        notify.md2_escape("1. Open a terminal on the NAS (see /ssh_local), then run:"),
+        _copy("sudo turtlengine share add"),
+        "",
+        notify.md2_escape("2. It walks you through three questions:"),
+        notify.md2_escape("   • which folder to share (e.g. /mnt/nas-1tb/media)"),
+        notify.md2_escape("   • which user may open it (your login name)"),
+        notify.md2_escape("   • a name for the share"),
+        "",
+        notify.md2_escape(
+            "3. When it's done, send /shares here for the connect commands."),
+    ])
+
+
+def cmd_storage(config, args=""):
     rows = get_storage()
     if rows is None:
         return notify.md2_escape("💾 Storage info unavailable.")
@@ -246,7 +543,98 @@ def cmd_storage(config):
     return "💾 *Storage*\n" + _fenced(table)
 
 
-def cmd_sessions(config):
+def cmd_gpu(config, args=""):
+    gpus = notify.get_gpus()
+    if not gpus:
+        return notify.md2_escape(
+            "🎮 No GPU detected (nvidia-smi isn't available). An NVIDIA GPU shows "
+            "live load/VRAM/temp here once its driver is installed.")
+    lines = ["🎮 *GPU*"]
+    for gpu in gpus:
+        lines.append("")
+        lines.append("*%s*" % notify.md2_escape(gpu["name"]))
+        detail = []
+        if gpu.get("util_pct") is not None:
+            detail.append("load %d%%" % gpu["util_pct"])
+        if gpu.get("mem_total_mib"):
+            detail.append("VRAM %.1f/%.1f GiB" % (
+                (gpu.get("mem_used_mib") or 0) / 1024.0,
+                gpu["mem_total_mib"] / 1024.0))
+        if gpu.get("temp_c") is not None:
+            detail.append("%d°C" % gpu["temp_c"])
+        if detail:
+            lines.append(notify.md2_escape(" · ".join(detail)))
+    return "\n".join(lines)
+
+
+def cmd_top(config, args=""):
+    rows = get_top()
+    if rows is None:
+        return notify.md2_escape("📈 Couldn't read the process list.")
+    if not rows:
+        return notify.md2_escape("📈 No processes to show.")
+    header = "%5s %5s  %s" % ("CPU", "MEM", "PROCESS")
+    body = "\n".join("%4s%% %4s%%  %s" % (cpu, mem, comm[:18])
+                     for comm, cpu, mem in rows)
+    return ("📈 *Top processes* " + notify.md2_escape("(by CPU)")
+            + "\n" + _fenced(header + "\n" + body))
+
+
+def cmd_temp(config, args=""):
+    temps = get_temps()
+    if not temps:
+        return notify.md2_escape(
+            "🌡 No temperature sensors found on this box.")
+    table = "\n".join("%-24s %4.0f°C" % (label[:24], celsius)
+                      for label, celsius in temps)
+    return "🌡 *Temperatures*\n" + _fenced(table)
+
+
+def cmd_net(config, args=""):
+    state, peers = get_tailscale_peers()
+    if state == "not_installed":
+        return notify.md2_escape("🌐 Tailscale isn't installed on this box.")
+    if state == "down":
+        return (notify.md2_escape("🌐 Tailscale isn't connected. On the NAS, run:")
+                + "\n" + _copy("sudo tailscale up"))
+    if not peers:
+        return notify.md2_escape("🌐 No other devices in your tailnet yet.")
+    # Online first, then alphabetical.
+    peers = sorted(peers, key=lambda p: (not p[2], p[0].lower()))
+    lines = ["🌐 *Tailscale devices*", ""]
+    for name, ip, online in peers:
+        dot = "🟢" if online else "⚪️"
+        addr = ("`%s`" % notify.md2_code_escape(ip)) if ip else notify.md2_escape("—")
+        lines.append("%s %s — %s" % (dot, notify.md2_escape(name), addr))
+    return "\n".join(lines)
+
+
+def cmd_services(config, args=""):
+    ports = get_listening_ports()
+    if ports is None:
+        return notify.md2_escape(
+            "🔌 Couldn't read listening ports (ss isn't available).")
+    if not ports:
+        return notify.md2_escape("🔌 Nothing is listening for connections.")
+    ip = notify.get_lan_ip() or notify.get_tailscale_ip()
+    lines = ["🔌 *Listening services*", ""]
+    for port, reachable in ports:
+        if not reachable:
+            lines.append(notify.md2_escape("• %d — local only" % port))
+        elif port == 22:
+            lines.append(notify.md2_escape("• 22 — SSH"))
+        elif ip:
+            scheme = "https" if port in (443, 8443) else "http"
+            lines.append("• " + _copy("%s://%s:%d" % (scheme, ip, port)))
+        else:
+            lines.append(notify.md2_escape("• %d" % port))
+    lines.append("")
+    lines.append(notify.md2_escape(
+        "Reachable from devices on your network/tailnet. Only you see this list."))
+    return "\n".join(lines)
+
+
+def cmd_sessions(config, args=""):
     user = config.get("SSH_USER") or "user"
     session = config.get("TMUX_SESSION") or "main"
     state, names = get_sessions(user)
@@ -266,7 +654,53 @@ def cmd_sessions(config):
     return "🧩 *tmux sessions*\n" + _fenced("\n".join(names)) + "\n" + notify.md2_escape(note)
 
 
-def cmd_logs(config):
+def cmd_new_terminal(config, args=""):
+    """Hand back a copy-paste command that opens a new terminal on the NAS.
+
+    The bot doesn't start anything itself -- you stay in control: copy the line
+    and run it. `args` is the optional name; blank picks the next free 'work[N]'
+    by reading (read-only) the sessions already running. `tmux new-session -A`
+    opens the named terminal, or re-opens it if it's already there.
+    """
+    user = config.get("SSH_USER") or "user"
+    requested = sanitize_session_name(args)
+    if args.strip() and not requested:
+        return notify.md2_escape(
+            "That name won't work. Use only letters, numbers, - or _ — "
+            "for example:  /new_terminal project2")
+
+    # Read-only peek so a blank request gets a name that isn't already taken.
+    state, names = get_sessions(user)
+    name = requested or next_session_name(set(names) if state == "ok" else set())
+
+    lan = notify.get_lan_ip()
+    ts = notify.get_tailscale_ip()
+    targets = []
+    if lan:
+        targets.append(("🏠 At home / same Wi‑Fi", lan))
+    if ts:
+        targets.append(("🌍 Away from home (Tailscale)", ts))
+
+    lines = ["🧩 *New terminal:* `%s`" % notify.md2_code_escape(name), ""]
+    lines.append(notify.md2_escape(
+        "Copy one line below and run it on your laptop or phone. It opens a new "
+        "terminal called \"%s\" on the NAS (or re‑opens it if it already "
+        "exists):" % name))
+    if targets:
+        for label, ip in targets:
+            lines.append("")
+            lines.append("*%s*" % notify.md2_escape(label))
+            lines.append(_copy(_ssh_command(user, ip, name)))
+    else:
+        lines.append("")
+        lines.append(notify.md2_escape(
+            "No network address is available right now. Once you're on the NAS "
+            "itself, this opens it:"))
+        lines.append(_copy("tmux new-session -A -s %s" % name))
+    return "\n".join(lines)
+
+
+def cmd_logs(config, args=""):
     out = get_logs(token=config.get("TELEGRAM_BOT_TOKEN"))
     if out is None:
         return notify.md2_escape("📜 journalctl isn't available on this system.")
@@ -286,8 +720,18 @@ COMMANDS = {
     "ip": cmd_ip,
     "ssh_local": cmd_ssh_local,
     "ssh_remote": cmd_ssh_remote,
+    "shares": cmd_shares,
+    "drives": cmd_drives,
+    "add_share": cmd_add_share, "addshare": cmd_add_share,
+    "share_add": cmd_add_share,
     "storage": cmd_storage,
+    "gpu": cmd_gpu,
+    "top": cmd_top,
+    "temp": cmd_temp, "temps": cmd_temp,
+    "net": cmd_net,
+    "services": cmd_services, "ports": cmd_services,
     "sessions": cmd_sessions,
+    "new_terminal": cmd_new_terminal, "terminal": cmd_new_terminal,
     "logs": cmd_logs,
     "ping": cmd_ping,
 }
@@ -300,15 +744,19 @@ def handle_update(update, config, token, chat_id, user_id):
         return
     if not is_authorized(message, user_id, chat_id):
         return
-    cmd = parse_command(message.get("text", ""))
+    text = message.get("text", "")
+    cmd = parse_command(text)
     if not cmd:
         return
+    # Everything after the command word is the argument (e.g. a session name).
+    parts = (text or "").strip().split(maxsplit=1)
+    args = parts[1] if len(parts) > 1 else ""
     handler = COMMANDS.get(cmd)
     if handler is None:
         reply = notify.md2_escape("Unknown command /%s — try /help." % cmd)
     else:
         try:
-            reply = handler(config)
+            reply = handler(config, args)
         except Exception as exc:          # one bad command must not crash the bot
             reply = notify.md2_escape("Error handling /%s: %s" % (cmd, exc))
     notify.send_message(token, chat_id, reply)
@@ -327,6 +775,9 @@ def main():
 
     print("TurtlEngine bot online; authorised user %s in chat %s."
           % (user_id, chat_id), file=sys.stderr)
+
+    # Register the "/" autocomplete menu (best-effort; never blocks serving).
+    set_my_commands(token)
 
     # Drain any backlog so old messages (e.g. the /start used during setup) are
     # not replayed as commands when the bot starts.
