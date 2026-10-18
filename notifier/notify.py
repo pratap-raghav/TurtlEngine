@@ -174,6 +174,67 @@ def get_cpu():
     return model, count
 
 
+def _nvidia_gpus():
+    """Rich GPU stats via nvidia-smi, or [] if it's absent/unavailable."""
+    query = ("name,memory.total,memory.used,utilization.gpu,temperature.gpu")
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=" + query,
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=10)
+    except (FileNotFoundError, subprocess.SubprocessError):
+        return []
+    if result.returncode != 0:
+        return []
+
+    def _int(value):
+        try:
+            return int(float(value))
+        except (ValueError, TypeError):
+            return None
+
+    gpus = []
+    for line in result.stdout.splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 5 or not parts[0]:
+            continue
+        gpus.append({
+            "name": parts[0],
+            "mem_total_mib": _int(parts[1]),
+            "mem_used_mib": _int(parts[2]),
+            "util_pct": _int(parts[3]),
+            "temp_c": _int(parts[4]),
+        })
+    return gpus
+
+
+def _lspci_gpus():
+    """Fallback: just the GPU model name(s) from lspci (no live stats)."""
+    try:
+        result = subprocess.run(["lspci"], capture_output=True, text=True, timeout=10)
+    except (FileNotFoundError, subprocess.SubprocessError):
+        return []
+    if result.returncode != 0:
+        return []
+    gpus = []
+    for line in result.stdout.splitlines():
+        low = line.lower()
+        if (" vga compatible controller" in low or " 3d controller" in low
+                or " display controller" in low):
+            name = line.split(":", 2)[-1].strip()
+            if name:
+                gpus.append({"name": name, "mem_total_mib": None,
+                             "mem_used_mib": None, "util_pct": None, "temp_c": None})
+    return gpus
+
+
+def get_gpus():
+    """Return a list of GPU dicts {name, mem_total_mib, mem_used_mib, util_pct,
+    temp_c}. Prefers nvidia-smi for live stats; falls back to lspci for the
+    model name only. Empty list when no GPU is found."""
+    return _nvidia_gpus() or _lspci_gpus()
+
+
 def get_mem():
     """Return (used_gib, total_gib) from /proc/meminfo, or (None, None)."""
     try:
@@ -300,6 +361,7 @@ def gather_info(config):
         "tmux_session": session,
         "cpu_model": cpu_model,
         "cpu_count": cpu_count,
+        "gpus": get_gpus(),
         "mem_used_gib": mem_used,
         "mem_total_gib": mem_total,
         "disk_used_gib": disk_used,
@@ -326,6 +388,11 @@ def build_message(info):
         if info.get("cpu_count"):
             cpu = "%s (%d cores)" % (cpu, info["cpu_count"])
         lines.append("🧮 CPU: %s" % md2_escape(cpu))
+    for gpu in info.get("gpus") or []:
+        text = gpu["name"]
+        if gpu.get("mem_total_mib"):
+            text = "%s (%.0f GiB)" % (text, gpu["mem_total_mib"] / 1024.0)
+        lines.append("🎮 GPU: %s" % md2_escape(text))
     if info.get("mem_total_gib"):
         lines.append(
             "🧠 RAM: %s"

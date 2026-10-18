@@ -99,9 +99,11 @@ each reachable address on every boot.
 
 ## Telegram boot-notifier
 
-The notifier messages you a status card on every boot — host, uptime, CPU / RAM
-/ disk / load / kernel, and a **tap-to-copy** reconnect command for each address
-(LAN and Tailscale). Handy from the phone, where it's one tap.
+The notifier messages you a status card on every boot — host, uptime, CPU / GPU
+/ RAM / disk / load / kernel, and a **tap-to-copy** reconnect command for each
+address (LAN and Tailscale). Handy from the phone, where it's one tap. The GPU
+line uses `nvidia-smi` when present, and falls back to the model name from
+`lspci` for other cards.
 
 Setup is guided — during `install.sh`, or by running
 `sudo ./scripts/setup-notifier.sh` any time:
@@ -172,20 +174,46 @@ confirm it before enabling — the bot then answers **only that account**.
 | `/status` | full status card (specs + reconnect commands) |
 | `/ip` | current LAN and Tailscale addresses |
 | `/ssh_local` · `/ssh_remote` | a fresh SSH command for home / for anywhere |
+| `/drives` | just the shared-drive names (quick glance) |
+| `/shares` | shared drives + tap-to-copy connect commands for every OS |
+| `/add_share` | how to add a new shared drive (steps + command) |
 | `/storage` | mounted disks and free space |
+| `/gpu` | GPU load, VRAM and temperature (`nvidia-smi`) |
+| `/top` | processes using the most CPU right now |
+| `/temp` | CPU and GPU temperatures |
+| `/services` | listening services and tap-to-open URLs |
+| `/net` | Tailscale devices online |
 | `/sessions` | tmux sessions (and whether `main` exists) |
+| `/new_terminal [name]` | a copy-paste command to open another terminal |
 | `/logs` | recent notifier logs (sanitized) |
 | `/ping` | confirm the bot is alive |
 | `/notify` | resend the status card |
 
+`/shares` reads your configured Samba shares and prints a ready-to-paste connect
+string for each one on **Windows** (`\\ip\Share`), **macOS**, **Linux** (Files
+and a `mount` command), **Android** and **iOS** — tap any line to copy it. No
+more hunting for the address after you add a drive. `/drives` is the quick
+version — just the names — and `/add_share` walks you through adding one.
+
+When you type `/` in the chat, your Telegram client shows the full command list
+with descriptions (BotFather-style). The bot registers this menu on startup via
+`setMyCommands`, so it stays in sync with what the bot actually supports.
+
+`/new_terminal` helps when you're juggling projects and want a second (third, …)
+terminal: it **hands you a command to copy and run** — it never starts anything
+itself. Send it bare for an auto-named `work`/`work2`/… terminal, or
+`/new_terminal api` to name it. `tmux new-session -A` opens that terminal, or
+re-opens it if it already exists.
+
 Manage it with `turtlengine bot {status|logs|restart}`.
 
 **Security.** It runs as your user (**non-root**, never `sudo`), accepts commands
-only from your allowlisted user id **and** chat id, and has **no** shell
-execution and **no** state-changing commands — it is read-only. If it can't read
-something (a tmux socket, the journal) it says so with a distinct state rather
-than failing or guessing. The token lives in `/etc/turtlebot.env` (chmod 600).
-Inline buttons and safe actions are a planned future addition.
+only from your allowlisted user id **and** chat id, and never builds a shell from
+message text. It is **read-only** — every command either reports state or hands
+you a command to run yourself; the bot never changes anything on the box. If it
+can't read something (a tmux socket, the journal) it says so with a distinct
+state rather than failing or guessing. The token lives in `/etc/turtlebot.env`
+(chmod 600).
 
 ## Managing the NAS: the `turtlengine` CLI
 
