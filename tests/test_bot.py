@@ -145,11 +145,33 @@ class TestHandlers(unittest.TestCase):
             out = bot.cmd_sessions(CONFIG)
         self.assertIn("No tmux sessions", out)
 
-    def test_sessions_lists_and_flags_main(self):
-        with mock.patch.object(bot, "get_sessions", return_value=("ok", ["main", "work"])):
+    def test_sessions_lists_connect_commands_per_session(self):
+        # Every running session -- not just the default -- gets its own copyable
+        # connect command, for each reachable address.
+        with mock.patch.object(bot, "get_sessions",
+                               return_value=("ok", ["main", "work"])), \
+                mock.patch.object(bot.notify, "get_lan_ip",
+                                  return_value="192.168.0.2"), \
+                mock.patch.object(bot.notify, "get_tailscale_ip",
+                                  return_value="100.64.0.1"):
+            out = bot.cmd_sessions(CONFIG)
+        self.assertIn("`ssh ghost@192.168.0.2 -t tmux new-session -A -s main`", out)
+        self.assertIn("`ssh ghost@192.168.0.2 -t tmux new-session -A -s work`", out)
+        self.assertIn("`ssh ghost@100.64.0.1 -t tmux new-session -A -s work`", out)
+        # The default session is flagged; inline code spans copy on mobile.
+        self.assertIn("✅", out)
+        self.assertNotIn("```", out)
+
+    def test_sessions_lists_names_without_address(self):
+        # With no LAN/Tailscale address we can't build SSH lines, but still list.
+        with mock.patch.object(bot, "get_sessions",
+                               return_value=("ok", ["main", "work"])), \
+                mock.patch.object(bot.notify, "get_lan_ip", return_value=None), \
+                mock.patch.object(bot.notify, "get_tailscale_ip", return_value=None):
             out = bot.cmd_sessions(CONFIG)
         self.assertIn("work", out)
-        self.assertIn("running", out)
+        self.assertIn("tmux attach", out)
+        self.assertNotIn("ssh ghost@", out)
 
     def test_storage_formats_rows(self):
         rows = [("/mnt/nas", 45.0, 440.0, 10, "ext4")]

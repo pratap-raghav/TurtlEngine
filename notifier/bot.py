@@ -68,7 +68,7 @@ COMMAND_HELP = [
     ("temp", "CPU and GPU temperatures"),
     ("services", "listening services and their URLs"),
     ("net", "Tailscale devices online"),
-    ("sessions", "tmux sessions"),
+    ("sessions", "tmux sessions + connect commands"),
     ("new_terminal", "command to open another terminal (add a name)"),
     ("logs", "recent notifier logs"),
     ("ping", "check the bot is alive"),
@@ -649,9 +649,36 @@ def cmd_sessions(config, args=""):
         return (notify.md2_escape(
             "🧩 No tmux sessions running. Start one on the NAS with:")
             + "\n" + _copy("tmux new-session -A -s %s" % session))
-    note = ("'%s' is running ✅" % session if session in names
-            else "'%s' is not running yet" % session)
-    return "🧩 *tmux sessions*\n" + _fenced("\n".join(names)) + "\n" + notify.md2_escape(note)
+
+    # One copyable connect command per session, per reachable address -- so each
+    # terminal (not just the default one) can be re-attached straight from here.
+    lan = notify.get_lan_ip()
+    ts = notify.get_tailscale_ip()
+    targets = []
+    if lan:
+        targets.append(("🏠", lan))
+    if ts:
+        targets.append(("🌍", ts))
+
+    lines = ["🧩 *tmux sessions* " + notify.md2_escape("(%d)" % len(names))]
+    if targets:
+        lines.append("")
+        lines.append(notify.md2_escape(
+            "Tap a command to copy it, then paste into your terminal:"))
+    for name in names:
+        flag = " ✅" if name == session else ""
+        lines.append("")
+        lines.append("*%s*%s" % (notify.md2_escape(name), flag))
+        for emoji, ip in targets:
+            lines.append(emoji + " " + _copy(_ssh_command(user, ip, name)))
+    if not targets:
+        # No address to build connect commands from -- still list the names.
+        lines.append("")
+        lines.append(notify.md2_escape(
+            "No LAN or Tailscale address available yet to build connect "
+            "commands; on the NAS itself, attach with:"))
+        lines.append(_copy("tmux attach -t %s" % session))
+    return "\n".join(lines)
 
 
 def cmd_new_terminal(config, args=""):
