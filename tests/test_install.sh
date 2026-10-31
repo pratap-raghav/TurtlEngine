@@ -9,7 +9,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "${HERE}/.." && pwd)"
-INSTALL="${REPO}/scripts/install.sh"
+INSTALL="${REPO}/bin/install.sh"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 

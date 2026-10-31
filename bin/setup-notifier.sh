@@ -12,7 +12,7 @@
 # alias often loads where t.me is blocked, and the Telegram app always works.
 # The chat id is fetched from the Bot API directly.
 #
-# Usage: sudo ./scripts/setup-notifier.sh [username]
+# Usage: sudo ./bin/setup-notifier.sh [username]
 #   username  account shown as SSH_USER in the message (default: $SUDO_USER).
 
 set -euo pipefail
@@ -175,7 +175,7 @@ EOF
     if [[ -z "${token}" ]]; then
         echo ""
         echo "  No token entered -- skipping for now. Add it later by re-running:"
-        echo "      sudo ./scripts/setup-notifier.sh"
+        echo "      sudo ./bin/setup-notifier.sh"
     else
         echo ""
         echo "  Step 2 - reading your chat id from Telegram (no need to look it up)."
@@ -212,7 +212,7 @@ EOF
         if [[ -z "${chat_id}" ]]; then
             echo ""
             echo "  No chat id set -- your token was not saved. Re-run when ready:"
-            echo "      sudo ./scripts/setup-notifier.sh"
+            echo "      sudo ./bin/setup-notifier.sh"
         else
             set_env_value TELEGRAM_BOT_TOKEN "${token}"
             set_env_value TELEGRAM_CHAT_ID "${chat_id}"
@@ -248,5 +248,5 @@ if creds_configured; then
 else
     echo ""
     echo "  The notifier is installed but has no credentials yet. Add them anytime:"
-    echo "      sudo ./scripts/setup-notifier.sh"
+    echo "      sudo ./bin/setup-notifier.sh"
 fi

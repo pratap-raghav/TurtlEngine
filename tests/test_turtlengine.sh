@@ -9,7 +9,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "${HERE}/.." && pwd)"
-CLI="${REPO}/scripts/turtlengine"
+CLI="${REPO}/bin/turtlengine"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "${TMP}"' EXIT

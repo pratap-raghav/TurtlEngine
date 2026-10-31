@@ -8,7 +8,7 @@
 #
 # Requires setup-notifier.sh to have been run first (for the token + chat id).
 #
-# Usage: sudo ./scripts/setup-bot.sh [owner-username]
+# Usage: sudo ./bin/setup-bot.sh [owner-username]
 #   owner-username  the account the bot runs as (default: $SUDO_USER). The bot
 #                   runs as this user so it can read that user's tmux socket.
 
@@ -39,7 +39,7 @@ if ! id "${OWNER}" >/dev/null 2>&1; then
 fi
 if [[ "${OWNER}" == "root" ]]; then
     echo "WARNING: the bot would run as root. It is designed to run as a" >&2
-    echo "         non-root owner. Re-run as 'sudo ./scripts/setup-bot.sh <user>'" >&2
+    echo "         non-root owner. Re-run as 'sudo ./bin/setup-bot.sh <user>'" >&2
     echo "         (or 'sudo turtlengine bot setup') to run it as that user." >&2
 fi
 
@@ -79,7 +79,7 @@ print(uid)
 # --- 1. Require the notifier to be configured (reuse its token + chat id) ----
 if [[ ! -f "${NOTIFIER_ENV_PATH}" ]]; then
     echo "The notifier isn't set up yet. Run this first, then re-run me:" >&2
-    echo "    sudo ./scripts/setup-notifier.sh" >&2
+    echo "    sudo ./bin/setup-notifier.sh" >&2
     exit 1
 fi
 TOKEN="$(env_from TELEGRAM_BOT_TOKEN "${NOTIFIER_ENV_PATH}")"

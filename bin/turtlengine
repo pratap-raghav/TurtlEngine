@@ -29,10 +29,10 @@ SELF_DIR="$(dirname "${SELF}")"
 # --- helpers ----------------------------------------------------------------
 find_script() {
     local name="$1" d
-    for d in "${SELF_DIR}" /opt/turtlengine/scripts; do
+    for d in "${SELF_DIR}" /opt/turtlengine/bin; do
         if [[ -f "${d}/${name}" ]]; then printf '%s\n' "${d}/${name}"; return 0; fi
     done
-    echo "Error: could not locate ${name} (looked in ${SELF_DIR} and /opt/turtlengine/scripts)." >&2
+    echo "Error: could not locate ${name} (looked in ${SELF_DIR} and /opt/turtlengine/bin)." >&2
     return 1
 }
 

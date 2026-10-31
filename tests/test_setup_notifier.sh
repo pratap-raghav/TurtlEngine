@@ -55,7 +55,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 # Run setup-notifier.sh with an explicit stdin and an explicit ENV_PATH, so the
 # interactive prompts are driven deterministically and never block.
 run_setup() { # run_setup <env-path> <stdin-string>
-    printf '%s' "$2" | ENV_PATH="$1" "${REPO}/scripts/setup-notifier.sh" testuser >/dev/null 2>&1
+    printf '%s' "$2" | ENV_PATH="$1" "${REPO}/bin/setup-notifier.sh" testuser >/dev/null 2>&1
 }
 
 sha() { sha256sum "$1" | awk '{print $1}'; }

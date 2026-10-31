@@ -46,7 +46,7 @@ Ubuntu install, run one script, and the box is ready for remote development.
 
 ```
 turtlengine/
-├── scripts/
+├── bin/
 │   ├── install.sh          # main entry point (idempotent)
 │   ├── setup-notifier.sh   # installs the Telegram boot-notifier
 │   ├── setup-samba.sh      # SMB file sharing (Windows / Android / iOS)
@@ -66,7 +66,7 @@ turtlengine/
 
 ## Component specs
 
-### 1. `scripts/install.sh` — main provisioning (idempotent)
+### 1. `bin/install.sh` — main provisioning (idempotent)
 
 Runs with `sudo`. Must be safe to re-run (check state before each action).
 
@@ -149,7 +149,7 @@ Template with placeholder values and inline comments explaining how to get each:
 > poll is the real guard, so a soft `Wants/After` is enough and won't wedge boot
 > if the net is briefly down.
 
-### 5. `scripts/setup-notifier.sh`
+### 5. `bin/setup-notifier.sh`
 
 - Guard root; take target username as `$1` (default `$SUDO_USER`).
 - Copy `notify.py` to `/opt/turtlengine/notifier/` (stable system path, matches
@@ -159,9 +159,9 @@ Template with placeholder values and inline comments explaining how to get each:
 - Install the service to `/etc/systemd/system/`, `daemon-reload`, `enable`.
 - Print how to fill the env file, test (`systemctl start`), and read logs.
 
-### 6. `scripts/mount-drive.sh` — format + auto-mount a data drive
+### 6. `bin/mount-drive.sh` — format + auto-mount a data drive
 
-- `sudo ./scripts/mount-drive.sh <device> <mountpoint> [--format]`.
+- `sudo ./bin/mount-drive.sh <device> <mountpoint> [--format]`.
 - Guard root; validate the device is a block device.
 - **Safety:** print device/mountpoint/mode, then require the user to **re-type the
   device name** to confirm before any destructive action.
@@ -172,9 +172,9 @@ Template with placeholder values and inline comments explaining how to get each:
   (nofail so a missing data drive never blocks boot). Skip if UUID already there.
 - `mount` it and show `df -h`.
 
-### 7. `scripts/setup-samba.sh` — SMB file sharing
+### 7. `bin/setup-samba.sh` — SMB file sharing
 
-- `sudo ./scripts/setup-samba.sh <username> <mountpoint> [sharename]`.
+- `sudo ./bin/setup-samba.sh <username> <mountpoint> [sharename]`.
 - Guard root; validate the mountpoint exists.
 - `apt-get install -y samba`.
 - Append a share block to `/etc/samba/smb.conf` (skip if `[sharename]` exists):
@@ -194,7 +194,7 @@ the real one never is.
 
 - Open with the TurtlEngine ASCII banner (see §11) in a fenced code block.
 - What it sets up (table).
-- Quick start: clone → `sudo ./scripts/install.sh` → `tailscale up` →
+- Quick start: clone → `sudo ./bin/install.sh` → `tailscale up` →
   `ssh-copy-id` from laptop → `tmux new -s main`.
 - The reconnect-from-anywhere command:
   `ssh user@<ip> -t tmux attach -t main`.
@@ -286,9 +286,9 @@ For the README/MOTD text file, use the same art without the Python wrapper:
 
 1. Scaffold the directory tree + `.gitignore`.
 2. `notifier/notify.py` + `nas-notifier.env.example` → smoke-test the builder.
-3. `systemd/nas-notifier.service` + `scripts/setup-notifier.sh`.
-4. `scripts/install.sh` (wire in the notifier prompt + MOTD copy).
-5. `scripts/mount-drive.sh`, `scripts/setup-samba.sh`.
+3. `systemd/nas-notifier.service` + `bin/setup-notifier.sh`.
+4. `bin/install.sh` (wire in the notifier prompt + MOTD copy).
+5. `bin/mount-drive.sh`, `bin/setup-samba.sh`.
 6. `motd/turtlengine.txt` + `README.md` (both using the §11 banner).
 7. Validate everything (`py_compile`, `bash -n`, executable bits), then
    `git init` and first commit.
@@ -304,13 +304,13 @@ For the README/MOTD text file, use the same art without the Python wrapper:
 > rewriting the original intent. (Updated 2026-10-17.)
 
 **New components not in the original tree**
-- `scripts/turtlengine` — a local Bash CLI to manage the box after install:
+- `bin/turtlengine` — a local Bash CLI to manage the box after install:
   `status`, `storage list|mount`, `share add|list|remove`, `logs` and `notify`
   (wrapping `journalctl`/`systemctl` so users never type them), and an
   interactive `menu`. Discovery is read-only; mutations require root +
-  confirmation. Installed to `/opt/turtlengine/scripts/` and symlinked to
+  confirmation. Installed to `/opt/turtlengine/bin/` and symlinked to
   `/usr/local/bin/turtlengine`.
-- `notifier/bot.py` + `scripts/setup-bot.sh` + `systemd/turtlebot.service` — an
+- `notifier/bot.py` + `bin/setup-bot.sh` + `systemd/turtlebot.service` — an
   optional **read-only Telegram command bot** (v1). A *separate* long-polling
   service (not the oneshot notifier) running as the box owner (**non-root**,
   never sudo). Every update is gated on **both** the sender's numeric user id and
@@ -340,7 +340,7 @@ For the README/MOTD text file, use the same art without the Python wrapper:
   box runs with no configured swap (`SWAP_SIZE_GB`, `vm.swappiness`, and the fstab
   swap line are all gone).
 - The **TurtlEngine banner prints first**, before any provisioning work.
-- Installs the `turtlengine` CLI + helper scripts to `/opt/turtlengine/scripts`,
+- Installs the `turtlengine` CLI + helper scripts to `/opt/turtlengine/bin`,
   and also **stages the notifier programs** (`notify.py`, `bot.py`) under
   `/opt/turtlengine/notifier` and the **systemd unit templates** under
   `/opt/turtlengine/systemd`. This makes the `/opt` tree self-contained, so
