@@ -101,6 +101,28 @@ class TestMessageBuilder(unittest.TestCase):
         self.assertIn("-s work", msg)        # in the command
         self.assertIn("`work`", msg)         # in the tmux-status line
 
+    def test_status_lists_every_running_session(self):
+        # When gather_info supplies the live session list, the status card shows
+        # a reconnect command for each one, for each reachable address -- the
+        # same behavior as /sessions.
+        msg = notify.build_message(base_info(sessions=["main", "work"]))
+        for name in ("main", "work"):
+            self.assertIn(
+                "ssh ghost@192.168.1.42 -t tmux new-session -A -s %s" % name, msg)
+            self.assertIn(
+                "ssh ghost@100.101.102.103 -t tmux new-session -A -s %s" % name, msg)
+        # main + work, each over LAN + Tailscale = 4 commands.
+        self.assertEqual(msg.count("-t tmux new-session -A -s"), 4)
+        self.assertIn("✅", msg)             # default session flagged
+        self.assertNotIn("```", msg)         # still tap-to-copy inline spans
+
+    def test_status_empty_session_list_offers_default(self):
+        # No terminals running -> still offer a (create) command for the default.
+        msg = notify.build_message(base_info(sessions=[]))
+        self.assertIn(
+            "ssh ghost@192.168.1.42 -t tmux new-session -A -s main", msg)
+        self.assertIn("no sessions running", msg)
+
     def test_system_info_rendered_when_present(self):
         msg = notify.build_message(base_info(
             cpu_model="Intel(R) Core(TM) i3", cpu_count=4,
