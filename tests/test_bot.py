@@ -121,11 +121,29 @@ class TestHandlers(unittest.TestCase):
         self.assertIn("couldn't be determined", out)
 
     def test_ssh_local_with_lan_gives_command(self):
-        with mock.patch.object(bot.notify, "get_lan_ip", return_value="192.168.0.5"):
+        with mock.patch.object(bot.notify, "get_lan_ip", return_value="192.168.0.5"), \
+                mock.patch.object(bot, "get_sessions", return_value=("ok", ["main"])):
             out = bot.cmd_ssh_local(CONFIG)
         # Inline code span (single backticks) so it's tap-to-copy on mobile.
         self.assertIn("`ssh ghost@192.168.0.5 -t tmux new-session -A -s main`", out)
         self.assertNotIn("```", out)
+
+    def test_ssh_local_lists_every_running_session(self):
+        # Consistency: /ssh_local covers all running terminals, not just 'main'.
+        with mock.patch.object(bot.notify, "get_lan_ip", return_value="192.168.0.2"), \
+                mock.patch.object(bot, "get_sessions",
+                                  return_value=("ok", ["main", "work"])):
+            out = bot.cmd_ssh_local(CONFIG)
+        self.assertIn("`ssh ghost@192.168.0.2 -t tmux new-session -A -s main`", out)
+        self.assertIn("`ssh ghost@192.168.0.2 -t tmux new-session -A -s work`", out)
+        self.assertIn("✅", out)   # the default session is flagged
+
+    def test_ssh_local_falls_back_to_default_when_none_running(self):
+        # No server running -> still hand back a usable (create) command for main.
+        with mock.patch.object(bot.notify, "get_lan_ip", return_value="192.168.0.2"), \
+                mock.patch.object(bot, "get_sessions", return_value=("none", [])):
+            out = bot.cmd_ssh_local(CONFIG)
+        self.assertIn("`ssh ghost@192.168.0.2 -t tmux new-session -A -s main`", out)
 
     def test_ssh_remote_without_tailscale_explains(self):
         with mock.patch.object(bot.notify, "get_tailscale_ip", return_value=None):
@@ -133,6 +151,15 @@ class TestHandlers(unittest.TestCase):
         self.assertIn("Tailscale isn't connected", out)
         self.assertIn("tailscale up", out)
         self.assertNotIn("ssh ghost@", out)
+
+    def test_ssh_remote_lists_every_running_session(self):
+        with mock.patch.object(bot.notify, "get_tailscale_ip",
+                               return_value="100.64.0.1"), \
+                mock.patch.object(bot, "get_sessions",
+                                  return_value=("ok", ["main", "work"])):
+            out = bot.cmd_ssh_remote(CONFIG)
+        self.assertIn("`ssh ghost@100.64.0.1 -t tmux new-session -A -s main`", out)
+        self.assertIn("`ssh ghost@100.64.0.1 -t tmux new-session -A -s work`", out)
 
     def test_sessions_permission_denied_distinct(self):
         with mock.patch.object(bot, "get_sessions", return_value=("denied", [])):

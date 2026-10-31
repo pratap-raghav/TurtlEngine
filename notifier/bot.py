@@ -178,23 +178,12 @@ def get_storage():
 
 
 def get_sessions(user):
-    """Return (state, names). state in: ok | none | denied | no_tmux | error."""
-    cmd = ["tmux"]
-    socket_path = notify.tmux_socket_for_user(user)
-    if socket_path:
-        cmd += ["-S", socket_path]
-    cmd += ["list-sessions", "-F", "#{session_name}"]
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-    except FileNotFoundError:
-        return "no_tmux", []
-    except subprocess.SubprocessError:
-        return "error", []
-    if result.returncode == 0:
-        return "ok", [s for s in result.stdout.splitlines() if s.strip()]
-    if "permission denied" in (result.stderr or "").lower():
-        return "denied", []
-    return "none", []   # no server running is the common non-zero case
+    """Return (state, names). state in: ok | none | denied | no_tmux | error.
+
+    Thin delegate to the shared lister in notify, so the status card and the bot
+    commands reason about the exact same live set of terminals.
+    """
+    return notify.list_tmux_sessions(user)
 
 
 def get_logs(token=None, lines=15):
@@ -367,7 +356,31 @@ def next_session_name(existing, base="work"):
 
 # --- command handlers (return MarkdownV2 text; Telegram-agnostic) -----------
 def _ssh_command(user, ip, session):
-    return "ssh %s@%s -t tmux new-session -A -s %s" % (user, ip, session)
+    # One source of truth (in notify), so /status, /ssh_local, /ssh_remote and
+    # /sessions all hand back byte-identical commands for the same session.
+    return notify.ssh_connect_command(user, ip, session)
+
+
+def _connectable_sessions(user, default):
+    """Running terminal names, or [default] when none run / can't be queried.
+
+    Falling back to the configured session keeps /ssh_local and /ssh_remote
+    useful even before any terminal exists: `tmux new-session -A` creates it.
+    """
+    state, names = get_sessions(user)
+    return names if state == "ok" and names else [default]
+
+
+def _connect_lines(user, ip, names, default):
+    """Tap-to-copy connect command(s): one per session, flagged when several."""
+    if len(names) == 1:
+        return _copy(_ssh_command(user, ip, names[0]))
+    out = []
+    for name in names:
+        out.append("*%s*%s" % (notify.md2_escape(name),
+                               " ✅" if name == default else ""))
+        out.append(_copy(_ssh_command(user, ip, name)))
+    return "\n".join(out)
 
 
 def _copy(text):
@@ -421,7 +434,8 @@ def cmd_ssh_local(config, args=""):
     if not lan:
         return notify.md2_escape(
             "🏠 LAN address couldn't be determined — is the NAS on the network?")
-    return "🏠 *Home / LAN*\n" + _copy(_ssh_command(user, lan, session))
+    names = _connectable_sessions(user, session)
+    return "🏠 *Home / LAN*\n" + _connect_lines(user, lan, names, session)
 
 
 def cmd_ssh_remote(config, args=""):
@@ -432,7 +446,8 @@ def cmd_ssh_remote(config, args=""):
         return (notify.md2_escape(
             "🌍 Tailscale isn't connected. Run this on the NAS, then try again:")
             + "\n" + _copy("sudo tailscale up"))
-    return "🌍 *Anywhere / Tailscale*\n" + _copy(_ssh_command(user, ts, session))
+    names = _connectable_sessions(user, session)
+    return "🌍 *Anywhere / Tailscale*\n" + _connect_lines(user, ts, names, session)
 
 
 def _share_block(share, ip, default_user):

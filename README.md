@@ -171,9 +171,9 @@ confirm it before enabling — the bot then answers **only that account**.
 | Command | What it returns |
 | --- | --- |
 | `/help` | the command list |
-| `/status` | full status card (specs + reconnect commands) |
+| `/status` | full status card (specs + a reconnect command for every running session) |
 | `/ip` | current LAN and Tailscale addresses |
-| `/ssh_local` · `/ssh_remote` | a fresh SSH command for home / for anywhere |
+| `/ssh_local` · `/ssh_remote` | SSH command for home / for anywhere, for every running session |
 | `/drives` | just the shared-drive names (quick glance) |
 | `/shares` | shared drives + tap-to-copy connect commands for every OS |
 | `/add_share` | how to add a new shared drive (steps + command) |
@@ -205,10 +205,13 @@ itself. Send it bare for an auto-named `work`/`work2`/… terminal, or
 `/new_terminal api` to name it. `tmux new-session -A` opens that terminal, or
 re-opens it if it already exists.
 
-`/sessions` then lists **every** running terminal with its own tap-to-copy
-reconnect command for home (LAN) and anywhere (Tailscale) — so you can hop back
-into any session, not just `main`, straight from the chat. The default session
-is flagged with a ✅.
+`/sessions`, `/status`, `/ssh_local` and `/ssh_remote` are all consistent about
+this: each lists **every** running terminal with its own tap-to-copy reconnect
+command — `/sessions` and `/status` cover both home (LAN) and anywhere
+(Tailscale), `/ssh_local` the LAN one and `/ssh_remote` the Tailscale one. So you
+can hop back into any session, not just `main`, straight from the chat, and the
+command you copy is identical whichever of these you ask. The default session is
+flagged with a ✅.
 
 Manage it with `turtlengine bot {status|logs|restart}`.
 
