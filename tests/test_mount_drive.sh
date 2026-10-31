@@ -43,7 +43,7 @@ FSTAB_FILE="${TMP}/fstab"
 
 # Mount-only mode on an unformatted device -> no UUID -> must fail cleanly.
 set +e
-FSTAB="${FSTAB_FILE}" "${REPO}/scripts/mount-drive.sh" "${LOOP}" "${TMP}/mnt" >/dev/null 2>&1
+FSTAB="${FSTAB_FILE}" "${REPO}/bin/mount-drive.sh" "${LOOP}" "${TMP}/mnt" >/dev/null 2>&1
 rc=$?
 set -e
 

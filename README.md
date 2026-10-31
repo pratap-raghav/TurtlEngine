@@ -32,12 +32,12 @@ SSH command on every boot.
 
 | Component | What it does |
 | --- | --- |
-| `scripts/install.sh` | Main provisioner: SSH, tmux, core tools, no-sleep, Tailscale (install only), MOTD, the `turtlengine` CLI, optional notifier |
-| `scripts/turtlengine` | Local CLI to manage status, storage, and shares after install |
-| `scripts/setup-notifier.sh` | Installs the Telegram boot-notifier (systemd service) |
-| `scripts/setup-bot.sh` | Installs the optional read-only Telegram command bot |
-| `scripts/mount-drive.sh` | Mounts a data drive by UUID (`nofail`); optional `--format` |
-| `scripts/setup-samba.sh` | Configures one SMB share for Windows / Android / iOS |
+| `bin/install.sh` | Main provisioner: SSH, tmux, core tools, no-sleep, Tailscale (install only), MOTD, the `turtlengine` CLI, optional notifier |
+| `bin/turtlengine` | Local CLI to manage status, storage, and shares after install |
+| `bin/setup-notifier.sh` | Installs the Telegram boot-notifier (systemd service) |
+| `bin/setup-bot.sh` | Installs the optional read-only Telegram command bot |
+| `bin/mount-drive.sh` | Mounts a data drive by UUID (`nofail`); optional `--format` |
+| `bin/setup-samba.sh` | Configures one SMB share for Windows / Android / iOS |
 | `notifier/notify.py` | The boot-notifier itself (Python stdlib only) |
 | `notifier/bot.py` | The read-only Telegram command bot (Python stdlib only) |
 | `systemd/nas-notifier.service` | Runs the notifier once on every boot |
@@ -54,7 +54,7 @@ shares yourself afterwards with the CLI.
 ```bash
 git clone <this-repo> turtlengine
 cd turtlengine
-sudo ./scripts/install.sh      # guided; idempotent and safe to re-run
+sudo ./bin/install.sh      # guided; idempotent and safe to re-run
 ```
 
 The installer runs like a guided setup assistant. It shows each phase as a tidy
@@ -106,7 +106,7 @@ line uses `nvidia-smi` when present, and falls back to the model name from
 `lspci` for other cards.
 
 Setup is guided — during `install.sh`, or by running
-`sudo ./scripts/setup-notifier.sh` any time:
+`sudo ./bin/setup-notifier.sh` any time:
 
 1. **Create a bot.** Message **@BotFather** (the setup opens it via
    `telegram.me`, which often loads even where `t.me` is blocked — or just use
@@ -136,7 +136,7 @@ Setup is guided — during `install.sh`, or by running
 invoking user and `main`). To reconfigure or test later without rebooting:
 
 ```bash
-sudo ./scripts/setup-notifier.sh    # re-run the guided setup (reinstalls notify.py)
+sudo ./bin/setup-notifier.sh    # re-run the guided setup (reinstalls notify.py)
 sudo turtlengine notify             # send a status card now
 turtlengine logs                    # read the notifier logs
 ```
@@ -162,7 +162,7 @@ your phone. It's a **separate**, hardened service from the boot notifier.
 Install it after the notifier is configured:
 
 ```bash
-sudo ./scripts/setup-bot.sh        # or: sudo turtlengine bot setup
+sudo ./bin/setup-bot.sh        # or: sudo turtlengine bot setup
 ```
 
 It reuses your bot token, auto-detects your Telegram **user id**, and asks you to
@@ -183,7 +183,7 @@ confirm it before enabling — the bot then answers **only that account**.
 | `/temp` | CPU and GPU temperatures |
 | `/services` | listening services and tap-to-open URLs |
 | `/net` | Tailscale devices online |
-| `/sessions` | tmux sessions (and whether `main` exists) |
+| `/sessions` | every running tmux session + a tap-to-copy connect command for each |
 | `/new_terminal [name]` | a copy-paste command to open another terminal |
 | `/logs` | recent notifier logs (sanitized) |
 | `/ping` | confirm the bot is alive |
@@ -204,6 +204,11 @@ terminal: it **hands you a command to copy and run** — it never starts anythin
 itself. Send it bare for an auto-named `work`/`work2`/… terminal, or
 `/new_terminal api` to name it. `tmux new-session -A` opens that terminal, or
 re-opens it if it already exists.
+
+`/sessions` then lists **every** running terminal with its own tap-to-copy
+reconnect command for home (LAN) and anywhere (Tailscale) — so you can hop back
+into any session, not just `main`, straight from the chat. The default session
+is flagged with a ✅.
 
 Manage it with `turtlengine bot {status|logs|restart}`.
 
@@ -256,10 +261,10 @@ These are **examples, not defaults** — none of them are created automatically.
 
 ```bash
 # Mount an already-formatted drive (adds a UUID entry to /etc/fstab, nofail).
-sudo ./scripts/mount-drive.sh /dev/sdb1 /mnt/nas-1tb
+sudo ./bin/mount-drive.sh /dev/sdb1 /mnt/nas-1tb
 
 # Format (DESTRUCTIVE) then mount. You must re-type the device name to confirm.
-sudo ./scripts/mount-drive.sh /dev/sdb /mnt/nas-1tb --format
+sudo ./bin/mount-drive.sh /dev/sdb /mnt/nas-1tb --format
 ```
 
 `--format` refuses to touch a device that has mounted or active-swap partitions
@@ -270,8 +275,8 @@ backed up before the `nofail` entry is added.
 ### Add an SMB share
 
 ```bash
-sudo ./scripts/setup-samba.sh <user> /mnt/nas-1tb/media Storage1TB
-sudo ./scripts/setup-samba.sh <user> /mnt/nas-4tb/backups Storage4TB   # another, independent
+sudo ./bin/setup-samba.sh <user> /mnt/nas-1tb/media Storage1TB
+sudo ./bin/setup-samba.sh <user> /mnt/nas-4tb/backups Storage4TB   # another, independent
 ```
 
 Or use the guided flow: `sudo turtlengine share add`. Before creating a share
@@ -309,7 +314,7 @@ sudo turtlengine share remove Storage4TB    # backs up smb.conf, reloads smbd
 **The command bot doesn't answer anything.** Check `turtlengine bot logs`.
 Repeated `getUpdates error: HTTP Error 401: Unauthorized` means the token in
 `/etc/turtlebot.env` is wrong or revoked — it must match the one in
-`/etc/nas-notifier.env`. Re-run `sudo ./scripts/setup-bot.sh` (it copies the
+`/etc/nas-notifier.env`. Re-run `sudo ./bin/setup-bot.sh` (it copies the
 notifier's token) and then `turtlengine bot restart`. Confirm the token itself
 is live with `curl -s "https://api.telegram.org/bot<TOKEN>/getMe"` — expect
 `"ok":true`. Note the boot notifier and the command bot are separate services:

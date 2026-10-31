@@ -2,7 +2,7 @@
 #
 # setup-samba.sh -- share ONE directory over SMB (Windows / Android / iOS).
 #
-# Usage: sudo ./scripts/setup-samba.sh <username> <directory> [sharename]
+# Usage: sudo ./bin/setup-samba.sh <username> <directory> [sharename]
 #   <username>     existing Linux user allowed to access the share.
 #   <directory>    directory to share, e.g. /mnt/nas-1tb/media
 #   [sharename]    SMB share name (default: basename of the directory)
@@ -202,7 +202,7 @@ commands (every OS, tap-to-copy) without looking them up again.
 
 To add ANOTHER independent share later, run this again with a different
 directory and name, e.g.:
-      sudo ./scripts/setup-samba.sh ${SHARE_USER} /mnt/nas-4tb/backups Storage4TB
+      sudo ./bin/setup-samba.sh ${SHARE_USER} /mnt/nas-4tb/backups Storage4TB
 or use the guided flow:
       sudo turtlengine share add
 EOF
