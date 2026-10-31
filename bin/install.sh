@@ -10,7 +10,7 @@
 #
 # Idempotent: every step checks state first, so it is safe to re-run.
 #
-# Usage: sudo ./scripts/install.sh [--verbose]
+# Usage: sudo ./bin/install.sh [--verbose]
 
 set -euo pipefail
 
@@ -181,11 +181,11 @@ step_base() {
     # The turtlengine CLI + its helper scripts, to a stable system path. No disk
     # is touched and no share is created -- the CLI is how you do that later, on
     # your terms.
-    install -d -m 0755 "${OPT_DIR}/scripts"
+    install -d -m 0755 "${OPT_DIR}/bin"
     local s
     for s in turtlengine mount-drive.sh setup-samba.sh setup-notifier.sh setup-bot.sh; do
-        if [[ -f "${REPO_ROOT}/scripts/${s}" ]]; then
-            install -m 0755 "${REPO_ROOT}/scripts/${s}" "${OPT_DIR}/scripts/${s}"
+        if [[ -f "${REPO_ROOT}/bin/${s}" ]]; then
+            install -m 0755 "${REPO_ROOT}/bin/${s}" "${OPT_DIR}/bin/${s}"
         fi
     done
     # Stage the notifier programs into the same /opt tree. This makes the
@@ -207,7 +207,7 @@ step_base() {
             install -m 0644 "${REPO_ROOT}/systemd/${u}" "${OPT_DIR}/systemd/${u}"
         fi
     done
-    ln -sf "${OPT_DIR}/scripts/turtlengine" "${CLI_LINK}"
+    ln -sf "${OPT_DIR}/bin/turtlengine" "${CLI_LINK}"
     # If the command bot is already running, it loaded the old bot.py/notify.py
     # at start; restart it so a re-run of the installer actually deploys the
     # freshly staged code. try-restart is a no-op when the unit isn't running,
@@ -247,11 +247,11 @@ if ask_yes "Set up Telegram boot notifications now?" "Y"; then
     else
         echo ""
         echo "  Notifier setup didn't finish cleanly. You can run it again later:"
-        echo "      sudo ./scripts/setup-notifier.sh"
+        echo "      sudo ./bin/setup-notifier.sh"
     fi
 else
     echo "  Skipped. You can enable Telegram notifications anytime with:"
-    echo "      sudo ./scripts/setup-notifier.sh"
+    echo "      sudo ./bin/setup-notifier.sh"
 fi
 
 # ---------------------------------------------------------------------------
@@ -297,7 +297,7 @@ if [[ "${NOTIFIER_INSTALLED}" == "yes" ]]; then
     notifier_state="installed and enabled"
 else
     notifier_mark="·"
-    notifier_state="not installed (run: sudo ./scripts/setup-notifier.sh)"
+    notifier_state="not installed (run: sudo ./bin/setup-notifier.sh)"
 fi
 
 cat <<EOF

@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [init_dev, dev, main]
+    branches: [dev, main]
   pull_request:
-    branches: [init_dev, dev, main]
+    branches: [dev, main]
 
 # Least privilege: the checks only need to read the repo.
 permissions:
@@ -28,14 +28,14 @@ jobs:
       - name: ShellCheck (fail on warning or above)
         run: |
           shellcheck -S warning -e SC1091 \
-            scripts/install.sh scripts/setup-notifier.sh scripts/setup-bot.sh \
-            scripts/setup-samba.sh scripts/mount-drive.sh scripts/turtlengine \
+            bin/install.sh bin/setup-notifier.sh bin/setup-bot.sh \
+            bin/setup-samba.sh bin/mount-drive.sh bin/turtlengine \
             tests/*.sh
 
       - name: Bash syntax check (bash -n)
         run: |
-          for f in scripts/install.sh scripts/setup-notifier.sh scripts/setup-bot.sh \
-                   scripts/setup-samba.sh scripts/mount-drive.sh scripts/turtlengine \
+          for f in bin/install.sh bin/setup-notifier.sh bin/setup-bot.sh \
+                   bin/setup-samba.sh bin/mount-drive.sh bin/turtlengine \
                    tests/*.sh; do
             bash -n "$f" && echo "ok: $f"
           done

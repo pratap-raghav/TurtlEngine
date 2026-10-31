@@ -2,7 +2,7 @@
 #
 # mount-drive.sh -- format (optional) and auto-mount a data drive by UUID.
 #
-# Usage: sudo ./scripts/mount-drive.sh <device> <mountpoint> [--format]
+# Usage: sudo ./bin/mount-drive.sh <device> <mountpoint> [--format]
 #   <device>      block device, e.g. /dev/sdb
 #   <mountpoint>  where to mount it, e.g. /mnt/data
 #   --format      DESTRUCTIVE: GPT-label the disk, make one ext4 partition
