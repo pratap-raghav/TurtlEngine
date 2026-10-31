@@ -326,6 +326,43 @@ def tmux_session_alive(session, user=None):
     return result.returncode == 0
 
 
+def ssh_connect_command(user, ip, session):
+    """The single canonical reconnect command string.
+
+    `tmux new-session -A` attaches to the session if it exists, or creates it if
+    not -- so the very first connect after a boot works too. This is the ONE
+    place the command is formed, so /status, /ssh_local, /ssh_remote and
+    /sessions all emit byte-identical commands for the same (user, ip, session).
+    """
+    return "ssh %s@%s -t tmux new-session -A -s %s" % (user, ip, session)
+
+
+def list_tmux_sessions(user):
+    """Return (state, names) for the target user's tmux server.
+
+    state is one of: ok | none | denied | no_tmux | error. Shared by the command
+    bot (/sessions, /ssh_local, /ssh_remote) and the status card so every
+    command reasons about the same live set of terminals. Points tmux at the
+    target user's own socket when the user is known (the notifier runs as root).
+    """
+    cmd = ["tmux"]
+    socket_path = tmux_socket_for_user(user)
+    if socket_path:
+        cmd += ["-S", socket_path]
+    cmd += ["list-sessions", "-F", "#{session_name}"]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+    except FileNotFoundError:
+        return "no_tmux", []
+    except subprocess.SubprocessError:
+        return "error", []
+    if result.returncode == 0:
+        return "ok", [s for s in result.stdout.splitlines() if s.strip()]
+    if "permission denied" in (result.stderr or "").lower():
+        return "denied", []
+    return "none", []   # no server running is the common non-zero case
+
+
 def md2_escape(text):
     """Escape a plain-text string for Telegram MarkdownV2."""
     text = text.replace("\\", "\\\\")
@@ -351,6 +388,7 @@ def gather_info(config):
     cpu_model, cpu_count = get_cpu()
     mem_used, mem_total = get_mem()
     disk_used, disk_total, disk_pct = get_disk("/")
+    sessions_state, sessions = list_tmux_sessions(user)
     return {
         "hostname": socket.gethostname(),
         "lan_ip": get_lan_ip(),
@@ -359,6 +397,9 @@ def gather_info(config):
         "tmux_alive": tmux_session_alive(session, user),
         "ssh_user": user,
         "tmux_session": session,
+        # Every running terminal, so the status card lists them all -- consistent
+        # with /sessions. Empty when none run or the server can't be queried.
+        "sessions": sessions if sessions_state == "ok" else [],
         "cpu_model": cpu_model,
         "cpu_count": cpu_count,
         "gpus": get_gpus(),
@@ -412,8 +453,24 @@ def build_message(info):
         lines.append("🐧 Kernel: `%s`" % md2_code_escape(info["kernel"]))
 
     session = info["tmux_session"]
-    state = "alive ✅" if info.get("tmux_alive") else "not started ⚪"
-    lines.append("🧩 tmux `%s`: %s" % (md2_code_escape(session), state))
+    # `sessions` is the live list when gather_info provided it (the status card);
+    # callers that pass a bare info (e.g. a boot message) omit it, and we fall
+    # back to the single configured session so the message still makes sense.
+    running = info.get("sessions")
+    if running is None:
+        state = "alive ✅" if info.get("tmux_alive") else "not started ⚪"
+        lines.append("🧩 tmux `%s`: %s" % (md2_code_escape(session), state))
+    elif running:
+        lines.append("🧩 tmux " + md2_escape(
+            "(%d session%s)" % (len(running), "" if len(running) == 1 else "s")))
+    else:
+        lines.append("🧩 tmux " + md2_escape("(no sessions running yet)"))
+
+    # Which terminals to offer a reconnect command for. With a live list, offer
+    # every running terminal (consistent with /sessions, /ssh_local, /ssh_remote);
+    # with none running, fall back to the configured session so `new-session -A`
+    # still creates it on first connect.
+    names = running if running else [session]
 
     user = info["ssh_user"]
     reachable = []
@@ -425,17 +482,21 @@ def build_message(info):
     if reachable:
         lines.append("")
         lines.append(md2_escape("Tap a command to copy it, then paste into your terminal:"))
-        for label, ip in reachable:
-            # new-session -A attaches to the session if it exists, or creates
-            # it if not -- so the very first connect after a boot works too.
-            command = "ssh %s@%s -t tmux new-session -A -s %s" % (user, ip, session)
-            lines.append("")
-            lines.append("*%s* \\(%s\\)" % (md2_escape(label), md2_escape(ip)))
-            # Inline code (single backticks), like BotFather's token: tapping it
-            # copies the whole command in the Telegram mobile apps. Fenced code
-            # blocks don't reliably copy on tap on mobile. Inside code only ` and
-            # \ need escaping.
-            lines.append("`%s`" % md2_code_escape(command))
+        multi = len(names) > 1
+        for name in names:
+            if multi:
+                lines.append("")
+                lines.append("*%s*%s" % (md2_escape(name),
+                                         " ✅" if name == session else ""))
+            for label, ip in reachable:
+                command = ssh_connect_command(user, ip, name)
+                lines.append("")
+                lines.append("*%s* \\(%s\\)" % (md2_escape(label), md2_escape(ip)))
+                # Inline code (single backticks), like BotFather's token: tapping
+                # it copies the whole command in the Telegram mobile apps. Fenced
+                # code blocks don't reliably copy on tap on mobile. Inside code
+                # only ` and \ need escaping.
+                lines.append("`%s`" % md2_code_escape(command))
     else:
         lines.append("")
         lines.append(md2_escape("No LAN or Tailscale address available yet."))
