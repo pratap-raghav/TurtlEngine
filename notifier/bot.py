@@ -821,6 +821,15 @@ def main():
     # Register the "/" autocomplete menu (best-effort; never blocks serving).
     set_my_commands(token)
 
+    # Warm the GPU read once now, so the first /status doesn't pay the laptop
+    # dGPU wake latency inline (nvidia-smi wakes a power-gated GPU; see
+    # notify.get_gpus_cached). Best-effort: a slow/missing GPU must not delay or
+    # block startup beyond nvidia-smi's own timeout, and any error is ignored.
+    try:
+        notify.get_gpus_cached()
+    except Exception as exc:
+        print("GPU warm-up skipped: %s" % exc, file=sys.stderr)
+
     # Drain any backlog so old messages (e.g. the /start used during setup) are
     # not replayed as commands when the bot starts.
     offset = None

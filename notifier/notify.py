@@ -235,6 +235,34 @@ def get_gpus():
     return _nvidia_gpus() or _lspci_gpus()
 
 
+# --- GPU read caching -------------------------------------------------------
+# The long-running command bot calls gather_info() on every /status. On a laptop
+# dGPU with runtime power management (RTD3), each nvidia-smi call wakes the GPU
+# from a low-power state, which can take several seconds; on an always-on desktop
+# GPU it is instant. Caching the GPU read for a short window means at most one
+# wake per window instead of one per command, so back-to-back /status calls stay
+# fast. The one-shot boot notifier reads it once, so the cache is a no-op there.
+# TTL is overridable via TURTLE_GPU_CACHE_TTL (0 disables; used by tests).
+GPU_CACHE_TTL_S = float(os.environ.get("TURTLE_GPU_CACHE_TTL", "20"))
+_GPU_CACHE = {"ts": 0.0, "val": None}
+
+
+def get_gpus_cached(ttl=None):
+    """get_gpus() with a short in-process TTL cache (see note above).
+
+    An empty list (no GPU) is cached too, so a box without a GPU doesn't re-run
+    nvidia-smi + lspci on every status card. Pass ttl=0 to force a fresh read.
+    """
+    ttl = GPU_CACHE_TTL_S if ttl is None else ttl
+    now = time.monotonic()
+    if ttl > 0 and _GPU_CACHE["val"] is not None and now - _GPU_CACHE["ts"] < ttl:
+        return _GPU_CACHE["val"]
+    val = get_gpus()
+    _GPU_CACHE["val"] = val
+    _GPU_CACHE["ts"] = now
+    return val
+
+
 def get_mem():
     """Return (used_gib, total_gib) from /proc/meminfo, or (None, None)."""
     try:
@@ -402,7 +430,9 @@ def gather_info(config):
         "sessions": sessions if sessions_state == "ok" else [],
         "cpu_model": cpu_model,
         "cpu_count": cpu_count,
-        "gpus": get_gpus(),
+        # Cached: on a laptop dGPU, reading the GPU wakes it (seconds). The bot
+        # calls this on every /status, so without caching each one re-wakes it.
+        "gpus": get_gpus_cached(),
         "mem_used_gib": mem_used,
         "mem_total_gib": mem_total,
         "disk_used_gib": disk_used,
