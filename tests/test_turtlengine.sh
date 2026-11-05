@@ -87,4 +87,16 @@ if [[ "${EUID}" -ne 0 ]]; then
     "${CLI}" bot restart >/dev/null 2>&1 && fail "bot restart should require root"
 fi
 
-echo "PASS: turtlengine CLI args, shares, logs/notify, bot subcommand."
+# --- uninstall is wired up, documented and guarded --------------------------
+grep -q 'uninstall' <<<"${help_out}" || fail "usage missing 'uninstall'"
+# An unknown flag is rejected before any work (exit 2), regardless of root.
+"${CLI}" uninstall --bogus >/dev/null 2>&1 && fail "uninstall bad flag should fail"
+rc=$?; [[ "${rc}" -eq 2 ]] || fail "uninstall bad-flag exit was ${rc}, expected 2"
+# --help prints usage and does nothing destructive (safe even as root).
+"${CLI}" uninstall --help 2>&1 | grep -q 'uninstall' || fail "uninstall --help missing usage"
+# It mutates the system, so it must refuse without root.
+if [[ "${EUID}" -ne 0 ]]; then
+    "${CLI}" uninstall -y >/dev/null 2>&1 && fail "uninstall should require root"
+fi
+
+echo "PASS: turtlengine CLI args, shares, logs/notify, bot subcommand, uninstall."

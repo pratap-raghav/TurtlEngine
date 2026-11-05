@@ -19,6 +19,8 @@
 #   sudo turtlengine bot setup       install the read-only Telegram command bot
 #        turtlengine bot status|logs status / logs of the command bot
 #   sudo turtlengine bot restart     restart the command bot
+#   sudo turtlengine uninstall       remove TurtlEngine (keeps data; asks about
+#                                    the Telegram config and Tailscale)
 
 set -euo pipefail
 
@@ -317,6 +319,137 @@ cmd_bot() { # manage the read-only Telegram command bot
     esac
 }
 
+# --- uninstall --------------------------------------------------------------
+cmd_uninstall() { # remove TurtlEngine itself, leaving user data + base system
+    local purge_env="ask" remove_ts="ask" assume_yes=0 arg
+    local usage="Usage: sudo turtlengine uninstall [-y|--yes] [--purge|--keep-config] [--remove-tailscale|--keep-tailscale]"
+    for arg in "$@"; do
+        case "${arg}" in
+            -y|--yes)          assume_yes=1 ;;
+            --purge)           purge_env="yes" ;;   # also delete /etc/*.env secrets
+            --keep-config)     purge_env="no" ;;    # keep the saved Telegram config
+            --remove-tailscale) remove_ts="yes" ;;  # also uninstall Tailscale
+            --keep-tailscale)  remove_ts="no" ;;    # leave Tailscale installed
+            -h|--help)         echo "${usage}"; return 0 ;;
+            *) echo "Unknown option: ${arg}" >&2
+               echo "${usage}" >&2
+               exit 2 ;;
+        esac
+    done
+    need_root uninstall
+
+    cat <<'EOF'
+This removes TurtlEngine itself:
+  * stops, disables and deletes the nas-notifier and turtlebot services
+  * removes /opt/turtlengine and the 'turtlengine' command
+  * re-enables sleep / suspend / hibernate (undoes the install's power tweak)
+  * restores the login banner (/etc/motd) that was there before
+
+It does NOT touch your data or the rest of the system:
+  * disks, mounts and /etc/fstab are left exactly as they are
+  * Samba shares, their files and SMB users are kept (edit /etc/samba/smb.conf
+    to remove a share -- the files are never deleted)
+  * SSH, tmux and other installed packages stay
+
+You'll be asked separately about your saved Telegram config and about Tailscale,
+so you decide whether those go too.
+EOF
+    echo ""
+    # Non-interactive defaults err on the safe side: keep the secrets, keep Tailscale.
+    [[ "${assume_yes}" -eq 1 && "${purge_env}" == "ask" ]] && purge_env="no"
+    [[ "${assume_yes}" -eq 1 && "${remove_ts}" == "ask" ]] && remove_ts="no"
+    if [[ "${assume_yes}" -ne 1 ]]; then
+        confirm "Uninstall TurtlEngine now?" || { echo "Cancelled; nothing was changed."; return 0; }
+    fi
+
+    # 1. Services: stop, disable, remove unit files, forget any failed state.
+    local unit
+    for unit in turtlebot.service nas-notifier.service; do
+        svc disable --now "${unit}"
+        svc stop "${unit}"
+        rm -f "/etc/systemd/system/${unit}"
+        echo "  Removed service: ${unit}"
+    done
+    svc daemon-reload
+    svc reset-failed
+
+    # 2. Undo the install's power tweak (it masked these to stay always-on).
+    svc unmask sleep.target suspend.target hibernate.target hybrid-sleep.target
+    echo "  Re-enabled sleep / suspend / hibernate."
+
+    # 3. Restore the login banner. Prefer the backup install.sh saved; otherwise,
+    #    only clear /etc/motd if it is still our turtle banner (never a banner the
+    #    user set themselves).
+    if [[ -f /opt/turtlengine/.motd.backup ]]; then
+        cp /opt/turtlengine/.motd.backup /etc/motd 2>/dev/null \
+            && echo "  Restored the previous /etc/motd."
+    elif [[ -f /etc/motd ]] && grep -q 'slow is smooth, smooth is fast' /etc/motd 2>/dev/null; then
+        : > /etc/motd
+        echo "  Cleared the TurtlEngine /etc/motd (no earlier banner was backed up)."
+    fi
+
+    # 4. The bot token lives in /etc/*.env -- remove only when asked.
+    if [[ "${purge_env}" == "ask" ]]; then
+        if confirm "Also delete the saved Telegram config (bot token in /etc/nas-notifier.env, /etc/turtlebot.env)?"; then
+            purge_env="yes"
+        else
+            purge_env="no"
+        fi
+    fi
+    if [[ "${purge_env}" == "yes" ]]; then
+        local e removed=0
+        for e in /etc/nas-notifier.env /etc/turtlebot.env; do
+            [[ -f "${e}" ]] && { rm -f "${e}"; removed=1; echo "  Removed ${e}"; }
+        done
+        [[ "${removed}" -eq 0 ]] && echo "  No Telegram config files were present."
+    else
+        echo "  Kept your Telegram config (/etc/nas-notifier.env, /etc/turtlebot.env)."
+    fi
+
+    # 5. Tailscale: the user's call -- it may be used by other things, so the
+    #    default is to keep it. Only offer/act when it is actually installed.
+    if command -v tailscale >/dev/null 2>&1; then
+        if [[ "${remove_ts}" == "ask" ]]; then
+            echo ""
+            echo "  Tailscale gives this machine private remote access. Removing it"
+            echo "  disconnects it from your tailnet and uninstalls the package."
+            if confirm "Remove Tailscale from this machine too?"; then
+                remove_ts="yes"
+            else
+                remove_ts="no"
+            fi
+        fi
+        if [[ "${remove_ts}" == "yes" ]]; then
+            tailscale logout >/dev/null 2>&1 || true
+            svc disable --now tailscaled.service
+            if command -v apt-get >/dev/null 2>&1; then
+                DEBIAN_FRONTEND=noninteractive apt-get remove -y tailscale >/dev/null 2>&1 || true
+            fi
+            echo "  Removed Tailscale (logged out, service disabled, package removed)."
+        else
+            echo "  Kept Tailscale."
+        fi
+    fi
+
+    # 6. Remove the CLI link, the install log, and the staged tree. /opt goes LAST
+    #    because it holds this very script -- on Linux a running script keeps
+    #    executing after it is unlinked, so finishing this function is safe.
+    rm -f /usr/local/bin/turtlengine
+    rm -f /var/log/turtlengine-install.log
+    rm -rf /opt/turtlengine
+    echo "  Removed /opt/turtlengine and the 'turtlengine' command."
+
+    echo ""
+    echo "TurtlEngine has been uninstalled. Your files and disks were not touched."
+    if [[ "${purge_env}" != "yes" ]]; then
+        echo "To remove the saved bot token too:"
+        echo "    sudo rm -f /etc/nas-notifier.env /etc/turtlebot.env"
+    fi
+    if [[ "${remove_ts}" != "yes" ]] && command -v tailscale >/dev/null 2>&1; then
+        echo "Tailscale was left installed -- disconnect anytime with 'sudo tailscale down'."
+    fi
+}
+
 # --- interactive menu -------------------------------------------------------
 menu() {
     local choice
@@ -371,6 +504,8 @@ Usage:
        turtlengine bot status           is the command bot running?
        turtlengine bot logs [-f]        view the command bot's logs
   sudo turtlengine bot restart          restart the command bot
+  sudo turtlengine uninstall            remove TurtlEngine (keeps your data; asks
+                                        about the Telegram config and Tailscale)
 USAGE
 }
 
@@ -396,6 +531,7 @@ main() {
         logs) cmd_logs "${2:-}" ;;
         notify) cmd_notify ;;
         bot) cmd_bot "${2:-}" "${3:-}" ;;
+        uninstall) cmd_uninstall "${@:2}" ;;
         -h|--help|help) usage ;;
         *) echo "Unknown command: ${cmd}" >&2; usage; exit 2 ;;
     esac
