@@ -182,6 +182,42 @@ class TestGetGpus(unittest.TestCase):
         self.assertEqual(gpus[0]["name"], "Intel UHD Graphics 770")
         self.assertIsNone(gpus[0]["mem_total_mib"])
 
+    def test_gpu_cache_serves_within_ttl_then_refreshes(self):
+        # Repeated /status must not re-run (re-wake) the GPU each time: within the
+        # TTL the cached read is served; ttl=0 forces a fresh read.
+        notify._GPU_CACHE["val"] = None  # start cold
+        calls = []
+
+        def fresh():
+            calls.append(1)
+            return [{"name": "GPU%d" % len(calls), "mem_total_mib": None,
+                     "mem_used_mib": None, "util_pct": None, "temp_c": None}]
+
+        with mock.patch.object(notify, "get_gpus", side_effect=fresh):
+            first = notify.get_gpus_cached(ttl=100)
+            second = notify.get_gpus_cached(ttl=100)   # within TTL -> cached
+            self.assertEqual(first, second)
+            self.assertEqual(len(calls), 1)            # underlying read ran once
+            third = notify.get_gpus_cached(ttl=0)      # ttl=0 -> fresh read
+            self.assertEqual(len(calls), 2)
+            self.assertNotEqual(third, first)
+        notify._GPU_CACHE["val"] = None
+
+    def test_gpu_cache_caches_absent_gpu(self):
+        # A box with no GPU shouldn't re-run nvidia-smi + lspci on every card.
+        notify._GPU_CACHE["val"] = None
+        calls = []
+
+        def none_gpu():
+            calls.append(1)
+            return []
+
+        with mock.patch.object(notify, "get_gpus", side_effect=none_gpu):
+            self.assertEqual(notify.get_gpus_cached(ttl=100), [])
+            self.assertEqual(notify.get_gpus_cached(ttl=100), [])
+        self.assertEqual(len(calls), 1)   # [] is cached, not re-read
+        notify._GPU_CACHE["val"] = None
+
     def test_welcome_message_is_celebratory_and_names_host(self):
         msg = notify.build_welcome_message(base_info(hostname="Ghost-Screen"))
         self.assertIn("TurtlEngine is live", msg)
