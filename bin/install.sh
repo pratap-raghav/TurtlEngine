@@ -255,6 +255,43 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Command bot -- the read-only Telegram bot that answers commands and registers
+# the "/" menu. It reuses the notifier's token + chat id, so it can only be set
+# up after the notifier is configured. install.sh stages setup-bot.sh into /opt
+# but, like Tailscale sign-in, actually running it is an explicit opt-in here --
+# without this step you get the boot message but no command menu or replies.
+# ---------------------------------------------------------------------------
+BOT_INSTALLED="no"
+if [[ "${NOTIFIER_INSTALLED}" == "yes" ]]; then
+    echo ""
+    echo "────────────────────────────────────────────────────────────"
+    echo "  Telegram command bot (read-only, optional)"
+    echo "────────────────────────────────────────────────────────────"
+    echo ""
+    echo "  Beyond the boot message, a small read-only bot can answer commands"
+    echo "  you send it (/status, /ip, /shares, /ssh_local ...) and show a \"/\""
+    echo "  menu in the chat. It only reports status or hands you a command to"
+    echo "  run yourself -- it never changes anything on this box."
+    echo ""
+    echo "  Tip: open Telegram and send your bot /start first, so it can see your"
+    echo "  account and offer to authorise it."
+    echo ""
+    if ask_yes "Set up the command bot now?" "Y"; then
+        echo ""
+        if "${SCRIPT_DIR}/setup-bot.sh" "${TARGET_USER}"; then
+            BOT_INSTALLED="yes"
+        else
+            echo ""
+            echo "  Command bot setup didn't finish cleanly. You can run it again later:"
+            echo "      sudo ./bin/setup-bot.sh        # or: sudo turtlengine bot setup"
+        fi
+    else
+        echo "  Skipped. You can enable the command bot anytime with:"
+        echo "      sudo ./bin/setup-bot.sh        # or: sudo turtlengine bot setup"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # Guided Tailscale sign-in -- the next thing after Telegram, as requested.
 # ---------------------------------------------------------------------------
 echo ""
@@ -299,6 +336,16 @@ else
     notifier_mark="·"
     notifier_state="not installed (run: sudo ./bin/setup-notifier.sh)"
 fi
+if [[ "${BOT_INSTALLED}" == "yes" ]]; then
+    bot_mark="✓"
+    bot_state="installed and enabled"
+elif [[ "${NOTIFIER_INSTALLED}" == "yes" ]]; then
+    bot_mark="·"
+    bot_state="not installed (run: sudo ./bin/setup-bot.sh)"
+else
+    bot_mark="·"
+    bot_state="needs the notifier first (run: sudo ./bin/setup-notifier.sh)"
+fi
 
 cat <<EOF
 
@@ -313,6 +360,7 @@ What's set up:
   ✓  Tailscale             ${ts_state}
   ✓  TurtlEngine CLI       installed (run: sudo turtlengine)
   ${notifier_mark}  Telegram notifier     ${notifier_state}
+  ${bot_mark}  Telegram command bot  ${bot_state}
 
 Your storage is untouched:
   Nothing was erased, mounted, or shared. Set up disks and network
