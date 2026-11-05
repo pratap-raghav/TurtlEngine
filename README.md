@@ -159,7 +159,9 @@ Beyond boot messages, you can turn the bot into a **read-only remote control** �
 message it to check status, grab a fresh SSH command, or inspect storage from
 your phone. It's a **separate**, hardened service from the boot notifier.
 
-Install it after the notifier is configured:
+`install.sh` offers to set this up for you right after the notifier (say yes when
+prompted). If you skipped it there — or you only ran the notifier — install it
+anytime after the notifier is configured:
 
 ```bash
 sudo ./bin/setup-bot.sh        # or: sudo turtlengine bot setup

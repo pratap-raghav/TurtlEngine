@@ -39,4 +39,11 @@ grep -qE 'mkfs|mkswap|smbpasswd|smb\.conf|--format|parted' "${INSTALL}" \
 grep -qE '(\./|/)(setup-samba|mount-drive)\.sh"?[[:space:]]+[^;]' "${INSTALL}" \
     && fail "install.sh must not invoke the storage/share helpers automatically"
 
-echo "PASS: banner-first, swap removed, no auto share/format in install.sh."
+# The command bot must be OFFERED during install (setup-bot.sh is actually
+# invoked, gated behind a prompt), not merely staged into /opt. Without this the
+# boot message works but the "/" menu and command replies never appear -- the
+# exact gap this guards against.
+grep -qE '"\$\{SCRIPT_DIR\}/setup-bot\.sh"' "${INSTALL}" \
+    || fail "install.sh must run the command-bot setup (setup-bot.sh), not just stage it"
+
+echo "PASS: banner-first, swap removed, no auto share/format, bot offered in install.sh."
