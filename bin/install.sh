@@ -174,8 +174,13 @@ step_tailscale() {
 }
 
 step_base() {
-    # Login banner.
+    # Login banner. Back up whatever /etc/motd was there first (once), so
+    # `turtlengine uninstall` can restore it instead of leaving our turtle banner.
+    install -d -m 0755 "${OPT_DIR}"
     if [[ -f "${REPO_ROOT}/motd/${MOTD_SRC_NAME}" ]]; then
+        if [[ ! -f "${OPT_DIR}/.motd.backup" && -f /etc/motd ]]; then
+            cp /etc/motd "${OPT_DIR}/.motd.backup"
+        fi
         cp "${REPO_ROOT}/motd/${MOTD_SRC_NAME}" /etc/motd
     fi
     # The turtlengine CLI + its helper scripts, to a stable system path. No disk

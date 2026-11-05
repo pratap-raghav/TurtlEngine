@@ -241,6 +241,7 @@ sudo turtlengine share add       # configure one Samba share (guided)
 sudo turtlengine share remove X  # remove share X's config (keeps the files)
      turtlengine logs            # view the boot-notifier's logs (-f to follow)
 sudo turtlengine notify          # send a status card to Telegram now
+sudo turtlengine uninstall       # remove TurtlEngine (keeps your data)
 ```
 
 The `logs` and `notify` commands wrap the underlying `journalctl` / `systemctl`
@@ -248,6 +249,33 @@ calls, so you never have to remember them.
 
 `status` never prints secrets — it reports that `/etc/nas-notifier.env` exists
 and its permissions, not its contents.
+
+### Uninstall
+
+```bash
+sudo turtlengine uninstall
+```
+
+This reverses TurtlEngine's own footprint and **leaves your data and the base
+system alone**. It:
+
+- stops, disables and deletes the `nas-notifier` and `turtlebot` services;
+- removes `/opt/turtlengine` and the `turtlengine` command;
+- re-enables sleep / suspend / hibernate (undoing the install's power tweak);
+- restores the login banner (`/etc/motd`) that was there before.
+
+It does **not** touch your disks, mounts or `/etc/fstab`, your Samba shares,
+their files or SMB users (edit `/etc/samba/smb.conf` to drop a share — the files
+are never deleted), or SSH and tmux. You're asked separately whether to also:
+
+- **delete the saved Telegram config** (your bot token in `/etc/nas-notifier.env`
+  and `/etc/turtlebot.env`) — kept by default; and
+- **remove Tailscale** (disconnect from your tailnet and uninstall the package)
+  — kept by default.
+
+For scripted use: `-y`/`--yes` skips the prompts, `--purge`/`--keep-config`
+decides the Telegram config, and `--remove-tailscale`/`--keep-tailscale` decides
+Tailscale.
 
 ## Storage and sharing — you choose the paths
 
